@@ -1,0 +1,16 @@
+*.log
+*.zip
+*.7z
+*.cab
+*.pfx
+*.key
+*.secret
+.env
+.vscode/*
+!.vscode/extensions.json
+!.vscode/tasks.json
+_site/
+.jekyll-cache/
+.jekyll-metadata
+.sass-cache/
+.impeccable/hook.cache.json
