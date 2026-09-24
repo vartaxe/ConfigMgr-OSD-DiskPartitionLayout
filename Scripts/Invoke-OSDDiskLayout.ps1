@@ -85,7 +85,7 @@
     .\Invoke-OSDDiskLayout.ps1 -RequireUEFI -TargetBusType NVMe -TargetModelRegex '^Approved SSD model'
     An approved, unique disk rule for a specific model group.
 .NOTES
-    Version: 0.5.1-rc.1. Not validated on live x86 or x64 WinPE hardware.
+    Version: 1.0.0. Not validated on live x86 or x64 WinPE hardware.
     Never follow this step with another Format and Partition Disk action.
     Apply Operating System must use OSPART, or the custom OSPartitionVariable.
 #>

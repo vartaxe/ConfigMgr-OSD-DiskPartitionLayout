@@ -1,6 +1,6 @@
 # ConfigMgr OSD: dynamic UEFI/GPT and BIOS/MBR disk layout
 
-**Status: 0.5.1-rc.1. Not validated in a live ConfigMgr/WinPE task sequence.**
+**Status: 1.0.0. Not validated in a live ConfigMgr/WinPE task sequence.**
 Do not publish it as production-ready until the validation matrix below passes
 on disposable disks and the actual boot images used by your fleet.
 
@@ -26,6 +26,11 @@ earlier 0.3.0-preview also required `-Apply`; that switch no longer exists.
 **0.5.1-preview safety change:** an otherwise eligible disk is now blocked
 when the running script or task-sequence working/log files appear to reside
 on it. Run a WinPE `-Preview` before swapping the earlier package.
+
+**1.0.0 stable release:** the reviewed 0.5.1 RC is promoted without changing
+the safety contract or layout behavior. The release remains subject to the
+live validation requirements documented below; stable versioning does not
+replace hardware and task-sequence acceptance testing.
 
 ## Layout and hand-off
 

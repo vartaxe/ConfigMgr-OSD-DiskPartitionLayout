@@ -1,6 +1,6 @@
 # Configuration Manager task-sequence integration
 
-**Companion to `Invoke-OSDDiskLayout.ps1` (0.5.1-rc.1). Not field-certified.**
+**Companion to `Invoke-OSDDiskLayout.ps1` (1.0.0). Not field-certified.**
 Use disposable media and a copy of the task sequence for the first tests.
 In an active WinPE task sequence, running the script without `-Preview`
 **erases the selected disk**. Do not add a native Format and Partition Disk
