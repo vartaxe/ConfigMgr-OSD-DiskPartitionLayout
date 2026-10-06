@@ -16,8 +16,8 @@ jobs:
           if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
               Register-PSRepository -Default
           }
-          Install-Module Pester -RequiredVersion '5.7.1' -Repository PSGallery -Scope CurrentUser -Force
+          Install-Module Pester -RequiredVersion '6.2.0' -Repository PSGallery -Scope CurrentUser -Force
           Install-Module PSScriptAnalyzer -RequiredVersion '1.25.0' -Repository PSGallery -Scope CurrentUser -Force
-          Import-Module Pester -RequiredVersion '5.7.1' -Force
+          Import-Module Pester -RequiredVersion '6.2.0' -Force
           Import-Module PSScriptAnalyzer -RequiredVersion '1.25.0' -Force
           .\build\Invoke-Validation.ps1

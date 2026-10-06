@@ -11,7 +11,7 @@ Select one approved target disk and create a firmware-appropriate GPT or MBR lay
 
 **Current version: 1.0.0.** This README follows `main`; published releases are versioned snapshots.
 
-[Quick start](#quick-start) | [Task-sequence integration](TASK-SEQUENCE.md) | [Compatibility](docs/COMPATIBILITY-MATRIX.md) | [Security](SECURITY.md)
+[Quick start](#quick-start) | [Task-sequence integration](TASK-SEQUENCE.md) | [Compatibility](docs/COMPATIBILITY-MATRIX.md) | [Contributing](CONTRIBUTING.md) | [Security](SECURITY.md)
 
 [![Release v1.0.0](https://img.shields.io/badge/RELEASE-v1.0.0-155799)](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout/releases/tag/v1.0.0)
 [![CI - main push](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
