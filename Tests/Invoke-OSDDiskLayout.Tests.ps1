@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-# Requires Pester 5. These tests import ONLY pure functions from the script AST;
+# Requires Pester 6. These tests import ONLY pure functions from the script AST;
 # they do not run the script entry point or invoke DiskPart.
 
 BeforeAll {
