@@ -24,8 +24,10 @@ Describe 'Project branding and Pages shell' {
     It 'uses responsive banners with descriptive alternative text on both landing pages' {
         $Readme | Should -Match '<source[^>]+banner-compact\.svg'
         $Readme | Should -Match '<img[^>]+banner\.svg[^>]+alt="[^"]+"'
+        $Readme | Should -Match '<img[^>]+banner\.svg[^>]+width="1280"[^>]+height="320"'
         $Index | Should -Match '<source[^>]+banner-compact\.svg'
         $Index | Should -Match '<img[^>]+banner\.svg[^>]+alt="[^"]+"'
+        $Index | Should -Match '<img[^>]+banner\.svg[^>]+width="1280"[^>]+height="320"'
     }
 
     It 'keeps the destructive warning and unvalidated deployment boundary visible' {

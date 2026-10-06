@@ -5,7 +5,7 @@ title: ConfigMgr OSD Disk Partition Layout
 <p align="center">
   <picture>
     <source media="(max-width: 720px)" srcset="assets/banner-compact.svg?v=1.0.0" width="640">
-    <img src="assets/banner.svg?v=1.0.0" alt="ConfigMgr OSD Disk Partition Layout; Invoke-OSDDiskLayout.ps1; Windows PowerShell 5.1." width="1280">
+    <img src="assets/banner.svg?v=1.0.0" alt="ConfigMgr OSD Disk Partition Layout; Invoke-OSDDiskLayout.ps1; Windows PowerShell 5.1." width="1280" height="320">
   </picture>
 </p>
 
