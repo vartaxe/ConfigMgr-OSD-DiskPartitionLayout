@@ -50,3 +50,43 @@ if ($null -eq $Result -or $Result.Result -ne 'Passed' -or $Result.TotalCount -eq
     $Result.NotRunCount -gt 0) {
     throw 'Pester did not complete with a fully passing, nonempty test suite.'
 }
+
+$Expected = @{}
+Get-ChildItem -LiteralPath $Root -File -Recurse -Force |
+    Where-Object {
+        $_.FullName -notlike "$Root\.git\*" -and
+        $_.Name -ne 'CHECKSUMS.txt'
+    } |
+    ForEach-Object {
+        $RelativePath = $_.FullName.Substring($Root.Length + 1).Replace('\', '/')
+        $Expected[$RelativePath] = $_.FullName
+    }
+
+$Manifest = @{}
+foreach ($Line in Get-Content -LiteralPath (Join-Path $Root 'CHECKSUMS.txt')) {
+    if ($Line -notmatch '^([0-9A-Fa-f]{64})  (.+)$') {
+        throw "Malformed checksum entry: $Line"
+    }
+    $Hash = $Matches[1]
+    $RelativePath = $Matches[2]
+    if ($Manifest.ContainsKey($RelativePath)) {
+        throw "Duplicate checksum entry: $RelativePath"
+    }
+    $Manifest[$RelativePath] = $Hash
+}
+
+foreach ($RelativePath in $Expected.Keys) {
+    if (-not $Manifest.ContainsKey($RelativePath)) {
+        throw "Missing checksum entry: $RelativePath"
+    }
+    $ActualHash = (Get-FileHash -LiteralPath $Expected[$RelativePath] `
+        -Algorithm SHA256).Hash
+    if ($ActualHash -ine $Manifest[$RelativePath]) {
+        throw "Checksum mismatch: $RelativePath"
+    }
+}
+foreach ($RelativePath in $Manifest.Keys) {
+    if (-not $Expected.ContainsKey($RelativePath)) {
+        throw "Unexpected checksum entry: $RelativePath"
+    }
+}

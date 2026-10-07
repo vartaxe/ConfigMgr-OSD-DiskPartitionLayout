@@ -45,6 +45,12 @@ device that the operating system does not enumerate.
 - **Current Windows 11:** use UEFI boot, GPT and `-RequireUEFI`. Validate TPM,
   Secure Boot capability, supported CPU, image architecture, ADK/ConfigMgr
   support and storage drivers separately.
+- **Windows 11 26H1:** treat this as a specialized new-hardware release, not a
+  general in-place-upgrade target. Use only the OEM image and supported Arm64
+  deployment stack for the applicable device.
+- **Windows 11 26H2:** Configuration Manager 2509 does not support it as a
+  client OS. Use Configuration Manager 2603 or later and a supported
+  `10.1.26100.x` ADK/WinPE combination.
 - **Windows 10 and other current UEFI-capable images:** use the Modern UEFI
   profile unless the image and hardware policy intentionally permits BIOS.
 - **Older BIOS-based Windows images:** use `-RequireBIOS` and the MBR profile.
@@ -58,10 +64,9 @@ device that the operating system does not enumerate.
   creates a correctly typed partition but does not populate or register
   `winre.wim`.
 
-Older x86 WinPE and older ConfigMgr sites may work when PowerShell 5.1,
-Storage WMI, ConfigMgr task-sequence COM support, DiskPart and the required
-storage drivers are present, but they are not certified by this project.
-PowerShell 2/3/4 is outside the current compatibility boundary because the
+Current Windows 11 ADKs do not include an x86 WinPE image. Do not build a new
+deployment around 32-bit boot media; use x64 or a supported Arm64 deployment
+stack. PowerShell 2/3/4 is outside the compatibility boundary because the
 script requires Windows PowerShell 5.1.
 
 ## Custom configuration contract
@@ -101,7 +106,7 @@ Before calling a profile production-ready, test at least one representative
 device and the exact boot image for each deployed family:
 
 - Dell Command Configure/driver-pack-managed systems;
-- Lenovo SCCM/MDT driver-pack systems;
+- Lenovo enterprise driver-pack-managed systems;
 - HP Image Assistant/SoftPaq-managed systems;
 - Microsoft Surface, including affected Storage Spaces models;
 - Intel NUC and current Intel VMD/RST platforms;
@@ -112,4 +117,3 @@ sector size, visible disks, selected disk identity, partition postconditions,
 Apply Operating System behavior, first boot and `reagentc /info`. After adding
 WinPE drivers or optional components, update and redistribute the boot image
 and recreate affected media before retesting.
-

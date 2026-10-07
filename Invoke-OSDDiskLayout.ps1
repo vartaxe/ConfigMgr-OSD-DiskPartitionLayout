@@ -636,6 +636,53 @@ function Test-SameDisk {
     }
 }
 
+function Resolve-OSDHostAddresses {
+    param(
+        [Parameter(Mandatory)][string] $HostName
+    )
+    try {
+        return @([System.Net.Dns]::GetHostAddresses($HostName) |
+            ForEach-Object { $_.ToString() } | Select-Object -Unique)
+    }
+    catch {
+        throw "Network host '$HostName' cannot be resolved; target safety cannot be checked."
+    }
+}
+
+function Get-OSDLocalNetworkIdentity {
+    $Names = @(
+        [string]$env:COMPUTERNAME
+        [System.Net.Dns]::GetHostName()
+    )
+    try {
+        $Names += [System.Net.Dns]::GetHostEntry(
+            [System.Net.Dns]::GetHostName()).HostName
+    }
+    catch {
+        Write-Verbose "Unable to resolve the local fully qualified host name: $($_.Exception.Message)"
+    }
+
+    $Addresses = @('127.0.0.1', '::1')
+    $Addresses += Resolve-OSDHostAddresses -HostName (
+        [System.Net.Dns]::GetHostName())
+    $Interfaces = [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()
+    foreach ($Interface in $Interfaces) {
+        $Addresses += @($Interface.GetIPProperties().UnicastAddresses |
+            ForEach-Object { $_.Address.ToString() })
+    }
+
+    [pscustomobject]@{
+        Names = @($Names | Where-Object {
+            -not [string]::IsNullOrWhiteSpace($_)
+        } | ForEach-Object {
+            $_.Trim().TrimEnd('.').ToLowerInvariant()
+        } | Select-Object -Unique)
+        Addresses = @($Addresses | Where-Object {
+            -not [string]::IsNullOrWhiteSpace($_)
+        } | Select-Object -Unique)
+    }
+}
+
 function Assert-OSDPathOffTargetDisk {
     param(
         [AllowEmptyString()][string] $Path,
@@ -650,9 +697,17 @@ function Assert-OSDPathOffTargetDisk {
             throw "$Description uses a device path that cannot be mapped safely."
         }
         $Server = ($Expanded.Substring(2) -split '[\\/]', 2)[0]
-        if ($Server -in @('', '.', 'localhost', '127.0.0.1',
-            '[::1]', [string]$env:COMPUTERNAME)) {
+        $NetworkHost = $Server.Trim().Trim('[', ']').TrimEnd('.').ToLowerInvariant()
+        $LocalIdentity = Get-OSDLocalNetworkIdentity
+        if ($NetworkHost -in @('', '.', 'localhost') -or
+            $NetworkHost -in $LocalIdentity.Names) {
             throw "$Description uses a local network alias that may point to the selected disk."
+        }
+        $RemoteAddresses = @(Resolve-OSDHostAddresses -HostName $NetworkHost)
+        if (@($RemoteAddresses | Where-Object {
+            $_ -in $LocalIdentity.Addresses
+        }).Count -gt 0) {
+            throw "$Description resolves to this computer and may point to the selected disk."
         }
         return
     }
