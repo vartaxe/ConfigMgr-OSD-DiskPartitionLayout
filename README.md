@@ -56,7 +56,7 @@ An optional fixed-size Windows plus Data profile is available with `-WindowsSize
 
 ## Validation and rollout
 
-The repository validation runs Windows PowerShell 5.1 parsing, PSScriptAnalyzer, and Pester tests. The tests exercise pure selection/planning/postcondition logic and static entry-point safety checks without cleaning disks; they do not prove that a real ConfigMgr/WinPE deployment succeeds.
+The repository validation runs Windows PowerShell 5.1 parsing, PSScriptAnalyzer, Pester tests, root/package byte-parity checks, and complete `CHECKSUMS.txt` verification. The tests exercise pure selection/planning/postcondition logic and static entry-point safety checks without cleaning disks; they do not prove that a real ConfigMgr/WinPE deployment succeeds.
 
 **Live ConfigMgr, WinPE, firmware, storage-driver, OS-image, and disposable-disk validation has not been completed for this release.** Use the [compatibility matrix](docs/COMPATIBILITY-MATRIX.md) to plan a controlled pilot. Check [CI](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout/actions/workflows/ci.yml) for the status of a specific revision.
 

@@ -18,3 +18,5 @@ Contributions that improve safety, compatibility, tests, or documentation are we
 6. Update user-facing documentation when support boundaries, parameters, task-sequence integration, or release behavior change.
 
 Pull requests should describe the risk addressed, the validation performed, and any remaining hardware-validation boundary. Automated tests do not establish field certification; test destructive behavior only on disposable disks in a controlled ConfigMgr/WinPE pilot.
+
+Regenerate `CHECKSUMS.txt` after all maintained-file changes and before final validation. The manifest hashes checked-out bytes after the repository `.gitattributes` rules are applied: PowerShell files use CRLF and other maintained text uses LF.

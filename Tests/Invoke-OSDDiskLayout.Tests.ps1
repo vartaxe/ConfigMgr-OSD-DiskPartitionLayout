@@ -25,6 +25,8 @@ BeforeAll {
         'New-OSDPartitionPlan',
         'New-OSDDiskPartCommands',
         'Assert-OSDPartitionStructure',
+        'Resolve-OSDHostAddresses',
+        'Get-OSDLocalNetworkIdentity',
         'Assert-OSDPathOffTargetDisk',
         'Assert-OSDWinPEDriveSafety'
     )) {
@@ -643,6 +645,22 @@ Describe 'Partition postconditions (synthetic, no hardware writes)' {
 
 Describe 'Task-sequence source protection (no disk writes)' {
     BeforeAll {
+        Mock Get-OSDLocalNetworkIdentity {
+            [pscustomobject]@{
+                Names = @('testhost', 'testhost.example.test')
+                Addresses = @('127.0.0.1', '::1', '10.0.0.5')
+            }
+        }
+        Mock Resolve-OSDHostAddresses {
+            switch ($HostName) {
+                'server' { return @('192.0.2.10') }
+                'local-alias.example.test' { return @('10.0.0.5') }
+                'unresolved.example.test' {
+                    throw "Network host '$HostName' cannot be resolved; target safety cannot be checked."
+                }
+                default { return @('192.0.2.11') }
+            }
+        }
         Mock Get-Partition {
             if ($DriveLetter -eq 'C') {
                 return [pscustomobject]@{ DiskNumber = 2 }
@@ -697,6 +715,18 @@ Describe 'Task-sequence source protection (no disk writes)' {
             -TargetDiskNumber 2 -Description 'Running script' } |
             Should -Throw
         { Assert-OSDPathOffTargetDisk -Path '\\localhost\C$\script.ps1' `
+            -TargetDiskNumber 2 -Description 'Running script' } |
+            Should -Throw
+        { Assert-OSDPathOffTargetDisk `
+            -Path '\\testhost.example.test\C$\script.ps1' `
+            -TargetDiskNumber 2 -Description 'Running script' } |
+            Should -Throw
+        { Assert-OSDPathOffTargetDisk `
+            -Path '\\local-alias.example.test\C$\script.ps1' `
+            -TargetDiskNumber 2 -Description 'Running script' } |
+            Should -Throw
+        { Assert-OSDPathOffTargetDisk `
+            -Path '\\unresolved.example.test\share\script.ps1' `
             -TargetDiskNumber 2 -Description 'Running script' } |
             Should -Throw
     }
