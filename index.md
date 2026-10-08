@@ -38,7 +38,7 @@ on known multi-drive hardware.
 | [Task-sequence integration](TASK-SEQUENCE.md) | Step order, variables, safety settings, rollout |
 | [Compatibility matrix](docs/COMPATIBILITY-MATRIX.md) | Supported profiles, storage/firmware boundaries |
 | [Security](SECURITY.md) | Destructive behavior and private vulnerability reporting |
-| [Source README](README.md) | Quick start, safety, validation and project links |
+| [Source README](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout#readme) | Quick start, safety, validation and project links |
 
 ## Source and releases
 
