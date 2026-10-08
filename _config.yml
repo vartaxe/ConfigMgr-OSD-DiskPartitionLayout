@@ -1,0 +1,53 @@
+title: ConfigMgr OSD Disk Partition Layout
+description: Safety-focused fresh-install disk partitioning for Configuration Manager WinPE.
+theme: jekyll-theme-cayman
+url: https://vartaxe.github.io
+baseurl: /ConfigMgr-OSD-DiskPartitionLayout
+repository: vartaxe/ConfigMgr-OSD-DiskPartitionLayout
+lang: en
+author: Claudio Mendes
+show_downloads: false
+
+plugins:
+  - jekyll-relative-links
+  - jekyll-optional-front-matter
+  - jekyll-seo-tag
+
+relative_links:
+  enabled: true
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default
+
+navigation:
+  - title: Profile
+    url: https://vartaxe.github.io/vartaxe/
+  - title: Hub
+    url: https://vartaxe.github.io/ConfigMgr-OSD/
+  - title: AD groups
+    url: https://vartaxe.github.io/ConfigMgr-OSD-AddComputerToADGroup/
+  - title: OSD logs
+    url: https://vartaxe.github.io/ConfigMgr-OSD-CopyOSDLogToFileShare/
+  - title: Disk layout
+    url: https://vartaxe.github.io/ConfigMgr-OSD-DiskPartitionLayout/
+  - title: Sponsor
+    url: https://github.com/sponsors/vartaxe
+
+buttons:
+  - title: View source
+    url: https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout
+  - title: Task-sequence guide
+    url: /TASK-SEQUENCE.html
+
+exclude:
+  - README.md
+  - Tests
+  - build
+  - .github
+  - .vscode
+  - Gemfile
+  - Gemfile.lock
+  - vendor

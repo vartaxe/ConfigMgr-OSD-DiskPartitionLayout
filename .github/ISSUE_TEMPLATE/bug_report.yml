@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a reproducible defect without publishing sensitive deployment data.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include disk serials, credentials, internal paths, or unredacted task-sequence logs. Use private vulnerability reporting for security concerns.
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Observed behavior
+      description: What happened, and at what task-sequence step?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Provide redacted ConfigMgr, WinPE, firmware mode, storage-controller, disk count, bus type, sector size, and command parameters.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Include the smallest safe reproduction. State whether Preview or destructive execution was used.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation performed
+      description: Describe disposable-hardware testing and the output of build\Invoke-Validation.ps1, if available.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: I removed sensitive deployment details and tested destructive behavior only on disposable media.
+          required: true

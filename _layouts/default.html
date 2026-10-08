@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="{{ site.lang | default: 'en' }}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0d1520" media="(prefers-color-scheme: dark)">
+    {% seo %}
+    <link rel="icon" href="{{ '/assets/favicon.svg' | relative_url }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ '/assets/css/style.css?v=' | append: site.github.build_revision | relative_url }}">
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <header class="page-header">
+      <nav class="project-navigation" aria-label="Project navigation">
+        <a href="{{ '/' | relative_url }}"{% if page.url == '/' or page.url == '/index.html' %} aria-current="page"{% endif %}>Home</a>
+        {% for item in site.navigation %}
+        {% assign prefix = item.url | slice: 0, 1 %}
+        <a href="{% if prefix == '/' %}{{ item.url | relative_url }}{% elsif prefix == '#' %}{{ '/' | relative_url }}{{ item.url }}{% else %}{{ item.url }}{% endif %}">{{ item.title | escape }}</a>
+        {% endfor %}
+      </nav>
+      {% if page.url == '/' or page.url == '/index.html' %}
+      <h1 class="project-name">{{ site.title | escape }}</h1>
+      {% else %}
+      <p class="project-name"><a href="{{ '/' | relative_url }}">{{ site.title | escape }}</a></p>
+      {% endif %}
+      <p class="project-tagline">{{ site.description | escape }}</p>
+      <div class="project-actions">
+        {% for item in site.buttons %}
+        {% assign prefix = item.url | slice: 0, 1 %}
+        <a class="btn" href="{% if prefix == '/' %}{{ item.url | relative_url }}{% elsif prefix == '#' %}{{ '/' | relative_url }}{{ item.url }}{% else %}{{ item.url }}{% endif %}">{{ item.title | escape }}</a>
+        {% endfor %}
+      </div>
+    </header>
+    <main id="main-content" class="main-content" tabindex="-1">
+      {% comment %}Make Jekyll-generated code and table scroll regions keyboard-accessible without JavaScript.{% endcomment %}
+      {{ content
+        | replace: '<pre class="highlight">', '<pre class="highlight" tabindex="0">'
+        | replace: '<pre>', '<pre tabindex="0">'
+        | replace: '<table>', '<table tabindex="0">'
+      }}
+      <footer class="site-footer">
+        <p>Maintained by <a href="https://github.com/vartaxe">Claudio Mendes (@vartaxe)</a>.
+          <a href="https://github.com/{{ site.repository }}">View this repository</a>.</p>
+        <p>Built with <a href="https://github.com/pages-themes/cayman">Cayman</a> on GitHub Pages.
+          Light and dark styles follow your device preference.</p>
+      </footer>
+    </main>
+  </body>
+</html>

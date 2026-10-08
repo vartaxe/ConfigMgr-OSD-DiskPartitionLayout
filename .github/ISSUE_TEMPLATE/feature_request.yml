@@ -1,0 +1,34 @@
+name: Feature request
+description: Propose a safety, compatibility, validation, or documentation improvement.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the deployment problem or unsupported scenario.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Explain how the change remains fail-closed and avoids guessing a target disk.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Target environment
+      description: Provide redacted ConfigMgr, WinPE, firmware, storage, and operating-system context.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation plan
+      description: Describe synthetic tests and disposable-hardware validation that could establish confidence.
+    validations:
+      required: true
