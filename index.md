@@ -4,8 +4,8 @@ title: ConfigMgr OSD Disk Partition Layout
 
 <p align="center">
   <picture>
-    <source media="(max-width: 720px)" srcset="assets/banner-compact.svg?v=1.0.0" width="640">
-    <img src="assets/banner.svg?v=1.0.0" alt="ConfigMgr OSD Disk Partition Layout; Invoke-OSDDiskLayout.ps1; Windows PowerShell 5.1." width="1280" height="320">
+    <source media="(max-width: 720px)" srcset="assets/banner-compact.svg?v=1.0.2" width="640">
+    <img src="assets/banner.svg?v=1.0.2" alt="ConfigMgr OSD Disk Partition Layout; Invoke-OSDDiskLayout.ps1; Windows PowerShell 5.1." width="1280" height="320">
   </picture>
 </p>
 
@@ -15,7 +15,7 @@ title: ConfigMgr OSD Disk Partition Layout
 firmware-appropriate UEFI/GPT or BIOS/MBR layout in one task-sequence step.
 Ambiguous, unhealthy, unverified, or unsafe targets stop before disk cleanup.
 
-> **Current version: 1.0.0. Not field-certified.** Automated tests do not
+> **Current version: 1.0.2. Not field-certified.** Automated tests do not
 > replace validation with the actual ConfigMgr boot image, OS image, drivers,
 > firmware, and disposable hardware.
 
@@ -42,7 +42,7 @@ on known multi-drive hardware.
 
 ## Source and releases
 
-The repository is authoritative. The [v1.0.0 release](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout/releases/tag/v1.0.0)
+The repository is authoritative. The [v1.0.2 release](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout/releases/tag/v1.0.2)
 includes a versioned source ZIP and SHA-256 sidecar. Verify the archive before
 extraction, and keep the packaged script byte-identical to the root source copy.
 Existing ConfigMgr packages do not update automatically.
