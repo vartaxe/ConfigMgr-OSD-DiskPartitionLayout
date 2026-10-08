@@ -3,6 +3,9 @@ Describe 'Project branding and Pages shell' {
         $Root = Split-Path -Parent $PSScriptRoot
         $Readme = Get-Content -LiteralPath (Join-Path $Root 'README.md') -Raw
         $Index = Get-Content -LiteralPath (Join-Path $Root 'index.md') -Raw
+        $TaskSequence = Get-Content -LiteralPath (Join-Path $Root 'TASK-SEQUENCE.md') -Raw
+        $Script = Get-Content -LiteralPath (Join-Path $Root 'Invoke-OSDDiskLayout.ps1') -Raw
+        $ExpectedVersion = '1.0.2'
     }
 
     It 'provides accessible desktop and compact banner artwork' {
@@ -33,6 +36,16 @@ Describe 'Project branding and Pages shell' {
         $Readme | Should -Match '(?i)not field-certified'
         $Index | Should -Match '(?i)cleans and repartitions the selected disk'
         $Index | Should -Match '(?i)not field-certified'
+    }
+
+    It 'keeps current release metadata aligned across published surfaces' {
+        $EscapedVersion = [regex]::Escape($ExpectedVersion)
+        $Readme | Should -Match "Current version: $EscapedVersion"
+        $Readme | Should -Match "releases/tag/v$EscapedVersion"
+        $Index | Should -Match "Current version: $EscapedVersion"
+        $Index | Should -Match "releases/tag/v$EscapedVersion"
+        $TaskSequence | Should -Match "Invoke-OSDDiskLayout\.ps1.*\($EscapedVersion\)"
+        $Script | Should -Match "Version: $EscapedVersion\."
     }
 
     It 'uses the shared Cayman site configuration and safe navigation paths' {

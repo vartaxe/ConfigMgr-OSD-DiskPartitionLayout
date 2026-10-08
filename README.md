@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(max-width: 720px)" srcset="assets/banner-compact.svg?v=1.0.0" width="640">
-    <img src="assets/banner.svg?v=1.0.0" alt="ConfigMgr OSD Disk Partition Layout; Invoke-OSDDiskLayout.ps1; Windows PowerShell 5.1." width="1280" height="320">
+    <source media="(max-width: 720px)" srcset="assets/banner-compact.svg?v=1.0.2" width="640">
+    <img src="assets/banner.svg?v=1.0.2" alt="ConfigMgr OSD Disk Partition Layout; Invoke-OSDDiskLayout.ps1; Windows PowerShell 5.1." width="1280" height="320">
   </picture>
 </p>
 
@@ -9,11 +9,11 @@
 
 Select one approved target disk and create a firmware-appropriate GPT or MBR layout in one Configuration Manager WinPE task-sequence step.
 
-**Current version: 1.0.0.** This README follows `main`; published releases are versioned snapshots.
+**Current version: 1.0.2.** This README follows `main`; published releases are versioned snapshots.
 
 [Quick start](#quick-start) | [Task-sequence integration](TASK-SEQUENCE.md) | [Compatibility](docs/COMPATIBILITY-MATRIX.md) | [Contributing](CONTRIBUTING.md) | [Security](SECURITY.md)
 
-[![Release v1.0.0](https://img.shields.io/badge/RELEASE-v1.0.0-155799)](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout/releases/tag/v1.0.0)
+[![Release v1.0.2](https://img.shields.io/badge/RELEASE-v1.0.2-155799)](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout/releases/tag/v1.0.2)
 [![CI - main push](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
 ![Windows PowerShell 5.1](https://img.shields.io/badge/Windows%20PowerShell-5.1-155799)
 [![MIT license](https://img.shields.io/badge/license-MIT-117865)](LICENSE)
@@ -24,7 +24,7 @@ Select one approved target disk and create a firmware-appropriate GPT or MBR lay
 
 The script fails closed when no unique target is approved, firmware checks conflict, disk identity changes, task-sequence content may be on the target, or post-format verification fails. A missing WinPE storage driver can hide the intended disk, so automatic single-disk selection is inappropriate on known multi-drive hardware. For Windows 11-only sequences, pass `-RequireUEFI`; BIOS/MBR is only suitable for compatible legacy-boot operating systems.
 
-**Version 1.0.0 is not field-certified.** Automated tests and a passing CI run do not replace disposable-hardware validation in your own task sequence.
+**Version 1.0.2 is not field-certified.** Automated tests and a passing CI run do not replace disposable-hardware validation in your own task sequence.
 
 ## Requirements
 
@@ -62,7 +62,7 @@ The repository validation runs Windows PowerShell 5.1 parsing, PSScriptAnalyzer,
 
 ## Source and release files
 
-The repository is authoritative. The [v1.0.0 release](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout/releases/tag/v1.0.0) includes a versioned source ZIP and SHA-256 sidecar. Verify the archive before extraction. The validation script also checks that `Scripts/Invoke-OSDDiskLayout.ps1` remains byte-identical to the root source copy. Existing ConfigMgr packages do not update automatically.
+The repository is authoritative. The [v1.0.2 release](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout/releases/tag/v1.0.2) includes a versioned source ZIP and SHA-256 sidecar. Verify the archive before extraction. The validation script also checks that `Scripts/Invoke-OSDDiskLayout.ps1` remains byte-identical to the root source copy. Existing ConfigMgr packages do not update automatically.
 
 ## Maintainer
 

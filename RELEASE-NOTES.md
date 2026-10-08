@@ -1,5 +1,26 @@
 # Release notes
 
+## v1.0.2
+
+Version 1.0.2 corrects published version and website metadata without changing
+disk-selection or partitioning behavior.
+
+### Fixed
+
+- Identifies the root and packaged scripts, README, Pages site, and
+  task-sequence guide consistently as version 1.0.2.
+- Links the Pages site to the latest release and retains its canonical source
+  README link instead of an excluded relative Pages path.
+- Adds regression coverage so release metadata cannot silently drift again.
+
+### Validation boundary
+
+Windows PowerShell 5.1 validation passed all 64 Pester tests,
+PSScriptAnalyzer, root/package byte parity, and complete checksum verification.
+Live ConfigMgr, WinPE, firmware, storage-driver, OS-image, and disposable-disk
+acceptance testing remains required before rollout. Version 1.0.2 is not
+field-certified.
+
 ## v1.0.1
 
 Version 1.0.1 is a safety and integrity maintenance release.
