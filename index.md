@@ -22,9 +22,11 @@ Ambiguous, unhealthy, unverified, or unsafe targets stop before disk cleanup.
 ## Before deployment
 
 **In an active WinPE task sequence, running without parameters irreversibly
-cleans and repartitions the selected disk.** `clean` removes partition
-metadata; it is not secure erasure. Use only for a fresh install on disposable
-test media until your environment-specific validation is complete.
+cleans and repartitions the selected disk.**
+
+The `clean` command removes partition metadata; it is not secure erasure. Use
+only for a fresh install on disposable test media until your
+environment-specific validation is complete.
 
 Use `-RequireUEFI` for Windows 11-only sequences. BIOS/MBR is only suitable
 for operating-system images that support legacy boot. A missing WinPE storage
@@ -51,9 +53,6 @@ on known multi-drive hardware.
     <p>Quick start, validation details, release files, and project links.</p>
   </section>
 </div>
-
-Use the [Source README](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout#readme)
-for the complete quick start, validation boundary, and release-file guidance.
 
 ## Source and releases
 
