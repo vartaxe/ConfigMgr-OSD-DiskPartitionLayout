@@ -33,12 +33,27 @@ on known multi-drive hardware.
 
 ## Documentation
 
-| Guide | Use it for |
-|---|---|
-| [Task-sequence integration](TASK-SEQUENCE.md) | Step order, variables, safety settings, rollout |
-| [Compatibility matrix](docs/COMPATIBILITY-MATRIX.md) | Supported profiles, storage/firmware boundaries |
-| [Security](SECURITY.md) | Destructive behavior and private vulnerability reporting |
-| [Source README](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout#readme) | Quick start, safety, validation and project links |
+<div class="guide-grid">
+  <section class="guide-card">
+    <h3><a href="TASK-SEQUENCE.html">Task-Sequence Integration</a></h3>
+    <p>Step order, variables, safety settings, target selection, and rollout.</p>
+  </section>
+  <section class="guide-card">
+    <h3><a href="docs/COMPATIBILITY-MATRIX.html">Compatibility Matrix</a></h3>
+    <p>Supported profiles plus storage, firmware, and operating-system boundaries.</p>
+  </section>
+  <section class="guide-card">
+    <h3><a href="SECURITY.html">Security</a></h3>
+    <p>Destructive behavior, trust boundaries, and private vulnerability reporting.</p>
+  </section>
+  <section class="guide-card">
+    <h3><a href="https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout#readme">Source README</a></h3>
+    <p>Quick start, validation details, release files, and project links.</p>
+  </section>
+</div>
+
+Use the [Source README](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout#readme)
+for the complete quick start, validation boundary, and release-file guidance.
 
 ## Source and releases
 

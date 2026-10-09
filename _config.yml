@@ -23,10 +23,8 @@ defaults:
       layout: default
 
 navigation:
-  - title: Profile
-    url: https://vartaxe.github.io/vartaxe/
   - title: Hub
-    url: https://vartaxe.github.io/ConfigMgr-OSD/
+    url: https://vartaxe.github.io/
   - title: AD groups
     url: https://vartaxe.github.io/ConfigMgr-OSD-AddComputerToADGroup/
   - title: OSD logs
@@ -37,9 +35,9 @@ navigation:
     url: https://github.com/sponsors/vartaxe
 
 buttons:
-  - title: View source
+  - title: View Source
     url: https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout
-  - title: Task-sequence guide
+  - title: Task-Sequence Guide
     url: /TASK-SEQUENCE.html
 
 exclude:
