@@ -49,13 +49,46 @@ a:focus-visible, button:focus-visible,
 }
 
 .page-header {
+  position: relative;
+  overflow: hidden;
   padding: 1.5rem 1.25rem 2.5rem;
   padding-left: unquote("max(1.25rem, env(safe-area-inset-left))");
   padding-right: unquote("max(1.25rem, env(safe-area-inset-right))");
   color: #ffffff;
   background: #155799;
-  background-image: linear-gradient(115deg, #155799, #117865);
+  background-image:
+    radial-gradient(circle at 88% 12%, rgba(112, 222, 197, 0.24), transparent 22rem),
+    linear-gradient(115deg, #155799, #117865);
   --focus: #ffffff;
+}
+
+.ecosystem-brand {
+  max-width: 68rem;
+  margin: 0 auto 1rem;
+}
+
+.ecosystem-brand a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.45rem 0.7rem;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.ecosystem-brand a:hover {
+  background: rgba(0, 0, 0, 0.2);
+  border-color: #ffffff;
+}
+
+.ecosystem-brand img {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.45rem;
 }
 
 .project-navigation, .project-actions {
@@ -110,6 +143,7 @@ a:focus-visible, button:focus-visible,
   background: rgba(0, 0, 0, 0.16);
   border: 1px solid rgba(255, 255, 255, 0.7);
   font-weight: 600;
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
 }
 
 .page-header .btn:hover {
@@ -117,6 +151,7 @@ a:focus-visible, button:focus-visible,
   border-color: #ffffff;
   text-decoration: underline;
   text-underline-offset: 0.2em;
+  transform: translateY(-1px);
 }
 
 .main-content {
@@ -158,6 +193,8 @@ a:focus-visible, button:focus-visible,
   color: var(--ink);
   background: var(--panel);
   border: 1px solid var(--border);
+  border-left: 0.35rem solid var(--accent);
+  border-radius: 0.35rem;
 }
 
 .callout > :first-child {
@@ -220,6 +257,24 @@ a:focus-visible, button:focus-visible,
   border-color: var(--border);
 }
 
+.main-content table th {
+  color: var(--ink);
+  background: var(--panel);
+}
+
+.main-content picture > img {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  box-shadow: 0 1rem 2.5rem rgba(25, 54, 82, 0.12);
+}
+
+.main-content hr {
+  height: 1px;
+  background: var(--border);
+  border: 0;
+}
+
 .project-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -239,6 +294,29 @@ a:focus-visible, button:focus-visible,
   margin-top: 0;
 }
 
+.guide-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.guide-card {
+  min-width: 0;
+  padding: 1.1rem 1.25rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+}
+
+.guide-card h3 {
+  margin-top: 0;
+}
+
+.guide-card p:last-child {
+  margin-bottom: 0;
+}
+
 .site-footer {
   border-color: var(--border);
   color: var(--muted);
@@ -246,7 +324,7 @@ a:focus-visible, button:focus-visible,
 }
 
 @media (min-width: 48rem) {
-  .project-grid {
+  .project-grid, .guide-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
