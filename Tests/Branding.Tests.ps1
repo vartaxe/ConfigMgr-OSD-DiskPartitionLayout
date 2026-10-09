@@ -5,7 +5,7 @@ Describe 'Project branding and Pages shell' {
         $Index = Get-Content -LiteralPath (Join-Path $Root 'index.md') -Raw
         $TaskSequence = Get-Content -LiteralPath (Join-Path $Root 'TASK-SEQUENCE.md') -Raw
         $Script = Get-Content -LiteralPath (Join-Path $Root 'Invoke-OSDDiskLayout.ps1') -Raw
-        $ExpectedVersion = '1.0.0'
+        $ExpectedVersion = '1.0.2'
     }
 
     It 'provides accessible desktop and compact banner artwork' {
@@ -54,8 +54,7 @@ Describe 'Project branding and Pages shell' {
         $Config | Should -Match 'theme: jekyll-theme-cayman'
         $Config | Should -Match 'baseurl: /ConfigMgr-OSD-DiskPartitionLayout'
         $Config | Should -Match 'url: /TASK-SEQUENCE\.html'
-        $Index | Should -Match ([regex]::Escape(
-            '[Source README](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout#readme)'))
+        $Index | Should -Match 'href="https://github\.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout#readme"'
         $Layout | Should -Match 'Skip to content'
         $Layout | Should -Match 'aria-label="Project navigation"'
     }
