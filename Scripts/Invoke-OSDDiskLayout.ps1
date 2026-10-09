@@ -442,41 +442,44 @@ function New-OSDDiskPartCommands {
         [Parameter(Mandatory)][string] $RecoveryGuid
     )
 
-    $Commands = @("select disk $DiskNumber", 'clean')
-    if ($Plan.FirmwareMode -eq 'UEFI') {
-        $Commands += 'convert gpt'
-        $Commands += "create partition efi size=$($Plan.EfiMiB)"
-        $Commands += 'format quick fs=fat32 label=System'
-        $Commands += "create partition msr size=$($Plan.MsrMiB)"
-    }
-    elseif ($Plan.FirmwareMode -eq 'BIOS') {
-        $Commands += 'convert mbr'
-        $Commands += "create partition primary size=$($Plan.BiosSystemMiB)"
-        $Commands += 'format quick fs=ntfs label="System Reserved"'
-        $Commands += 'assign letter=S'
-        $Commands += 'active'
-    }
-    else {
-        throw 'Unrecognized partition plan firmware mode.'
-    }
-    $Commands += "create partition primary size=$($Plan.WindowsMiB)"
-    $Commands += 'format quick fs=ntfs label=Windows'
-    $Commands += 'assign letter=W'
-    $Commands += "create partition primary size=$($Plan.RecoveryMiB)"
-    $Commands += 'format quick fs=ntfs label=Recovery'
-    if ($Plan.FirmwareMode -eq 'UEFI') {
-        $Commands += "set id=$RecoveryGuid"
-        $Commands += 'gpt attributes=0x8000000000000001'
-    }
-    else {
-        $Commands += 'set id=27'
-    }
-    $Commands += 'detail partition'
-    if ($Plan.DataMiB -gt 0) {
-        $Commands += "create partition primary size=$($Plan.DataMiB)"
-        $Commands += 'format quick fs=ntfs label=Data'
-    }
-    $Commands += 'exit'
+    $Commands = @(
+        "select disk $DiskNumber"
+        'clean'
+        if ($Plan.FirmwareMode -eq 'UEFI') {
+            'convert gpt'
+            "create partition efi size=$($Plan.EfiMiB)"
+            'format quick fs=fat32 label=System'
+            "create partition msr size=$($Plan.MsrMiB)"
+        }
+        elseif ($Plan.FirmwareMode -eq 'BIOS') {
+            'convert mbr'
+            "create partition primary size=$($Plan.BiosSystemMiB)"
+            'format quick fs=ntfs label="System Reserved"'
+            'assign letter=S'
+            'active'
+        }
+        else {
+            throw 'Unrecognized partition plan firmware mode.'
+        }
+        "create partition primary size=$($Plan.WindowsMiB)"
+        'format quick fs=ntfs label=Windows'
+        'assign letter=W'
+        "create partition primary size=$($Plan.RecoveryMiB)"
+        'format quick fs=ntfs label=Recovery'
+        if ($Plan.FirmwareMode -eq 'UEFI') {
+            "set id=$RecoveryGuid"
+            'gpt attributes=0x8000000000000001'
+        }
+        else {
+            'set id=27'
+        }
+        'detail partition'
+        if ($Plan.DataMiB -gt 0) {
+            "create partition primary size=$($Plan.DataMiB)"
+            'format quick fs=ntfs label=Data'
+        }
+        'exit'
+    )
     return $Commands
 }
 
