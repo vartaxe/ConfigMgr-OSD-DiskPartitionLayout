@@ -20,3 +20,13 @@ Contributions that improve safety, compatibility, tests, or documentation are we
 Pull requests should describe the risk addressed, the validation performed, and any remaining hardware-validation boundary. Automated tests do not establish field certification; test destructive behavior only on disposable disks in a controlled ConfigMgr/WinPE pilot.
 
 Regenerate `CHECKSUMS.txt` after all maintained-file changes and before final validation. The manifest hashes checked-out bytes after the repository `.gitattributes` rules are applied: PowerShell files use CRLF and other maintained text uses LF.
+
+## Bounded cleanup
+
+`New-OSDDiskPartCommands` collects its ordered command strings in one array
+expression instead of repeatedly reallocating the array with `+=`. The root and
+package copies remain byte-identical and self-contained. Synthetic regression
+tests check every command for UEFI and BIOS, with and without Data, and ensure
+unknown firmware returns no partial command list. Selection, safety checks,
+parameters, error messages, exit codes, and DiskPart execution are unchanged.
+These tests generate strings only; they do not validate hardware or a live task sequence.

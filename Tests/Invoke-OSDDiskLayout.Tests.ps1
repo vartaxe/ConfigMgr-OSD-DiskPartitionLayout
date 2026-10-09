@@ -417,6 +417,72 @@ Describe 'Final disk recheck (no hardware writes)' {
 }
 
 Describe 'Partition calculation and DiskPart plan' {
+    It 'keeps the complete <FirmwareMode> command sequence with Data=<DataMiB>' -Tag 'Cleanup' -ForEach @(
+        @{ FirmwareMode = 'UEFI'; DataMiB = 0 }
+        @{ FirmwareMode = 'UEFI'; DataMiB = 1024 }
+        @{ FirmwareMode = 'BIOS'; DataMiB = 0 }
+        @{ FirmwareMode = 'BIOS'; DataMiB = 1024 }
+    ) {
+        $Plan = [pscustomobject]@{
+            FirmwareMode = $FirmwareMode
+            EfiMiB = 300
+            MsrMiB = 16
+            BiosSystemMiB = 512
+            WindowsMiB = 40960
+            RecoveryMiB = 2048
+            DataMiB = $DataMiB
+        }
+        $Expected = @('select disk 7', 'clean')
+        if ($FirmwareMode -eq 'UEFI') {
+            $Expected += @(
+                'convert gpt', 'create partition efi size=300',
+                'format quick fs=fat32 label=System', 'create partition msr size=16'
+            )
+        }
+        else {
+            $Expected += @(
+                'convert mbr', 'create partition primary size=512',
+                'format quick fs=ntfs label="System Reserved"', 'assign letter=S', 'active'
+            )
+        }
+        $Expected += @(
+            'create partition primary size=40960', 'format quick fs=ntfs label=Windows',
+            'assign letter=W', 'create partition primary size=2048',
+            'format quick fs=ntfs label=Recovery'
+        )
+        if ($FirmwareMode -eq 'UEFI') {
+            $Expected += @(
+                'set id=de94bba4-06d1-4d40-a16a-bfd50179d6ac',
+                'gpt attributes=0x8000000000000001'
+            )
+        }
+        else {
+            $Expected += 'set id=27'
+        }
+        $Expected += 'detail partition'
+        if ($DataMiB -gt 0) {
+            $Expected += @('create partition primary size=1024', 'format quick fs=ntfs label=Data')
+        }
+        $Expected += 'exit'
+
+        $Actual = @(New-OSDDiskPartCommands -DiskNumber 7 -Plan $Plan `
+            -RecoveryGuid 'de94bba4-06d1-4d40-a16a-bfd50179d6ac')
+        $Actual.Count | Should -Be $Expected.Count
+        ($Actual -join "`n") | Should -BeExactly ($Expected -join "`n")
+        foreach ($Line in $Actual) { $Line | Should -BeOfType [string] }
+    }
+
+    It 'rejects unknown firmware without returning a partial command list' -Tag 'Cleanup' {
+        $Output = New-Object System.Collections.ArrayList
+        {
+            New-OSDDiskPartCommands -DiskNumber 7 `
+                -Plan ([pscustomobject]@{ FirmwareMode = 'Unknown' }) `
+                -RecoveryGuid 'de94bba4-06d1-4d40-a16a-bfd50179d6ac' |
+                ForEach-Object { [void]$Output.Add($_) }
+        } | Should -Throw 'Unrecognized partition plan firmware mode.'
+        $Output.Count | Should -Be 0
+    }
+
     It 'reserves the exact recovery size after a dynamic Windows partition' {
         $Plan = New-OSDPartitionPlan -DiskSizeBytes 128GB
         $Plan.EfiMiB | Should -Be 1024
