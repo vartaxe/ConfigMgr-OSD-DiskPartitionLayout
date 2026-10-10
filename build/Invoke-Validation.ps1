@@ -1,5 +1,7 @@
 [CmdletBinding()]
-param()
+param(
+    [string]$Tag
+)
 
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
@@ -14,6 +16,17 @@ Import-Module PSScriptAnalyzer -RequiredVersion '1.25.0' -ErrorAction Stop
 foreach ($Path in @($Source, $Package, $Test)) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         throw "Required validation file is missing: $Path"
+    }
+}
+
+if ($PSBoundParameters.ContainsKey('Tag')) {
+    $VersionMatch = [regex]::Match(
+        (Get-Content -LiteralPath $Source -Raw),
+        '(?m)^\s*Version:\s*(\d+\.\d+\.\d+)\.')
+    if (-not $VersionMatch.Success -or
+        $Tag -cnotmatch '^v\d+\.\d+\.\d+$' -or
+        $Tag.Substring(1) -cne $VersionMatch.Groups[1].Value) {
+        throw 'Tag does not match the documented script version.'
     }
 }
 
