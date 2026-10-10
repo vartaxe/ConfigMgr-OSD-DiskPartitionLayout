@@ -621,8 +621,8 @@ function Test-SameDisk {
         }
     }
 
-    $Drive = @(Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction Stop |
-        Where-Object { [int]$_.Index -eq $Selection.Number })
+    $Drive = @(Get-CimInstance -ClassName Win32_DiskDrive `
+        -Filter "Index = $($Selection.Number)" -ErrorAction Stop)
     if ($Selection.WmiFound) {
         if (($Drive.Count -ne 1) -or
             ([string]$Drive[0].PNPDeviceID -ne $Selection.PnpId)) {
@@ -1160,8 +1160,8 @@ try {
          (([string]$ResultDisk.SerialNumber).Trim() -ne $Selected.Serial))) {
         throw 'Post-format disk identity or partition-style verification failed.'
     }
-    $PostDevice = @(Get-CimInstance -ClassName Win32_DiskDrive -ErrorAction Stop |
-        Where-Object { $_.Index -eq $Selected.Number })
+    $PostDevice = @(Get-CimInstance -ClassName Win32_DiskDrive `
+        -Filter "Index = $($Selected.Number)" -ErrorAction Stop)
     if ($Selected.WmiFound -and
         ($PostDevice.Count -ne 1 -or
          [string]$PostDevice[0].PNPDeviceID -ne $Selected.PnpId)) {
