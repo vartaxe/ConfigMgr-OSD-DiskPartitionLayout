@@ -20,4 +20,8 @@ jobs:
           Install-Module PSScriptAnalyzer -RequiredVersion '1.25.0' -Repository PSGallery -Scope CurrentUser -Force
           Import-Module Pester -RequiredVersion '6.2.0' -Force
           Import-Module PSScriptAnalyzer -RequiredVersion '1.25.0' -Force
-          .\build\Invoke-Validation.ps1
+          $ValidationParameters = @{}
+          if ($env:GITHUB_REF -like 'refs/tags/*') {
+              $ValidationParameters.Tag = $env:GITHUB_REF.Substring('refs/tags/'.Length)
+          }
+          .\build\Invoke-Validation.ps1 @ValidationParameters
