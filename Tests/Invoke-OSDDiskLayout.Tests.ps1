@@ -22,6 +22,7 @@ BeforeAll {
         'Select-OSDTargetDisk',
         'Assert-OSDFirmwareDiskGeometry',
         'Assert-OSDDiskState',
+        'Test-SameDisk',
         'New-OSDPartitionPlan',
         'New-OSDDiskPartCommands',
         'Assert-OSDPartitionStructure',
@@ -413,6 +414,70 @@ Describe 'Final disk recheck (no hardware writes)' {
         $Current.LogicalSectorSize = 4096
         { Assert-OSDDiskState -Current $Current -Selection $Selected } |
             Should -Throw
+    }
+}
+
+Describe 'Targeted WMI disk recheck (no hardware writes)' {
+    It 'queries only the selected disk and still verifies its identity' {
+        $Selection = New-FixtureDisk -Number 3 -Serial 'APPROVED'
+        $Current = [pscustomobject]@{
+            Size = $Selection.SizeBytes
+            LogicalSectorSize = $Selection.LogicalSectorSize
+            BusType = $Selection.BusType
+            FriendlyName = $Selection.Model
+            SerialNumber = $Selection.Serial
+            UniqueId = $Selection.UniqueId
+            HealthStatus = $Selection.HealthStatus
+            IsOffline = $Selection.IsOffline
+            IsReadOnly = $Selection.IsReadOnly
+            IsClustered = $Selection.IsClustered
+        }
+        $Device = [pscustomobject]@{
+            Index = $Selection.Number
+            PNPDeviceID = $Selection.PnpId
+            InterfaceType = $Selection.WmiInterface
+            MediaType = $Selection.WmiMedia
+            Status = $Selection.WmiStatus
+        }
+        Mock Get-Disk { $Current }
+        Mock Get-CimInstance { $Device } -ParameterFilter {
+            $ClassName -eq 'Win32_DiskDrive' -and $Filter -eq 'Index = 3'
+        }
+
+        { Test-SameDisk -Selection $Selection } | Should -Not -Throw
+        Should -Invoke Get-CimInstance -Exactly 1 -ParameterFilter {
+            $ClassName -eq 'Win32_DiskDrive' -and $Filter -eq 'Index = 3'
+        }
+    }
+
+    It 'rejects a selected disk whose WMI device identity changed' {
+        $Selection = New-FixtureDisk -Number 3 -Serial 'APPROVED'
+        $Current = [pscustomobject]@{
+            Size = $Selection.SizeBytes
+            LogicalSectorSize = $Selection.LogicalSectorSize
+            BusType = $Selection.BusType
+            FriendlyName = $Selection.Model
+            SerialNumber = $Selection.Serial
+            UniqueId = $Selection.UniqueId
+            HealthStatus = $Selection.HealthStatus
+            IsOffline = $Selection.IsOffline
+            IsReadOnly = $Selection.IsReadOnly
+            IsClustered = $Selection.IsClustered
+        }
+        $Device = [pscustomobject]@{
+            Index = $Selection.Number
+            PNPDeviceID = 'SCSI\\DISK&VEN_CHANGED'
+            InterfaceType = $Selection.WmiInterface
+            MediaType = $Selection.WmiMedia
+            Status = $Selection.WmiStatus
+        }
+        Mock Get-Disk { $Current }
+        Mock Get-CimInstance { $Device } -ParameterFilter {
+            $ClassName -eq 'Win32_DiskDrive' -and $Filter -eq 'Index = 3'
+        }
+
+        { Test-SameDisk -Selection $Selection } |
+            Should -Throw 'Disk device identity changed since selection; refusing to erase it.'
     }
 }
 
