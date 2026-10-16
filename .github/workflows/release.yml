@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to package and publish
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-2022
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - name: Install pinned validation modules
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
+              Register-PSRepository -Default
+          }
+          Install-Module Pester -RequiredVersion '6.2.0' -Repository PSGallery -Scope CurrentUser -Force
+          Install-Module PSScriptAnalyzer -RequiredVersion '1.25.0' -Repository PSGallery -Scope CurrentUser -Force
+          Import-Module Pester -RequiredVersion '6.2.0' -Force
+          Import-Module PSScriptAnalyzer -RequiredVersion '1.25.0' -Force
+
+      - name: Validate tagged revision
+        shell: powershell
+        run: .\build\Invoke-Validation.ps1 -Tag $env:RELEASE_TAG
+
+      - name: Create release archive
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Archive = Join-Path $env:RUNNER_TEMP "ConfigMgr-OSD-DiskPartitionLayout-$env:RELEASE_TAG.zip"
+          git archive --format=zip --output=$Archive --prefix="ConfigMgr-OSD-DiskPartitionLayout-$env:RELEASE_TAG/" "refs/tags/$env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0) { throw "git archive failed for $env:RELEASE_TAG." }
+          $Hash = (Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash
+          "$Hash  $(Split-Path -Leaf $Archive)" | Set-Content -LiteralPath "$Archive.sha256" -Encoding ascii
+
+      - name: Extract release notes for the tag
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Notes = Get-Content -LiteralPath 'RELEASE-NOTES.md' -Raw
+          $Pattern = '(?ms)^##[ \t]+' + [regex]::Escape($env:RELEASE_TAG) + '[ \t]*\r?$(.*?)(?=^##[ \t]|\z)'
+          $Section = [regex]::Match($Notes, $Pattern)
+          if (-not $Section.Success) { throw "RELEASE-NOTES.md has no '## $env:RELEASE_TAG' section." }
+          $Body = $Section.Groups[1].Value.Trim()
+          if ([string]::IsNullOrWhiteSpace($Body)) { throw "Release notes for $env:RELEASE_TAG are empty." }
+          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'release-body.md') -Value $Body -Encoding utf8
+
+      - name: Publish GitHub prerelease
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Archive = Join-Path $env:RUNNER_TEMP "ConfigMgr-OSD-DiskPartitionLayout-$env:RELEASE_TAG.zip"
+          $Body = Join-Path $env:RUNNER_TEMP 'release-body.md'
+          gh release create $env:RELEASE_TAG $Archive "$Archive.sha256" `
+            --verify-tag `
+            --title "ConfigMgr OSD Disk Partition Layout $env:RELEASE_TAG" `
+            --notes-file $Body `
+            --prerelease
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $env:RELEASE_TAG." }

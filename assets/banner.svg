@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-labelledby="title description">
+  <title id="title">ConfigMgr OSD Disk Partition Layout</title>
+  <desc id="description">A blue and teal banner showing a disk partition diagram and the PowerShell script name.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#123f68"/>
+      <stop offset="1" stop-color="#117865"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="320" rx="24" fill="url(#background)"/>
+  <g transform="translate(72 72)" fill="none" stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="0" y="0" width="180" height="156" rx="18" stroke-width="8"/>
+    <path d="M48 12v132m42-132v132m42-132v132M12 52h156m-156 52h156" stroke="#70dec5" stroke-width="7"/>
+    <circle cx="151" cy="177" r="8" fill="#70dec5" stroke="none"/>
+  </g>
+  <g fill="#ffffff" font-family="Segoe UI, Arial, sans-serif">
+    <text x="310" y="128" font-size="42" font-weight="700">ConfigMgr OSD</text>
+    <text x="310" y="184" font-size="38" font-weight="700">Disk Partition Layout</text>
+    <text x="312" y="232" font-size="22">Fail-closed selection · UEFI/GPT and BIOS/MBR · PowerShell 5.1</text>
+  </g>
+</svg>

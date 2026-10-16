@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout/security/advisories/new
+    about: Report security concerns privately. Do not include sensitive deployment details in a public issue.
+  - name: Task-sequence integration guide
+    url: https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout/blob/main/TASK-SEQUENCE.md
+    about: Review required step ordering, variables, and rollout checks before requesting support.

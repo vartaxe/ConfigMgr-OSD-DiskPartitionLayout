@@ -1,0 +1,31 @@
+name: Compatibility report
+description: Report a tested firmware, storage, or WinPE compatibility result
+title: "[Compatibility]: "
+labels:
+  - compatibility
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include internal disk serial numbers, computer names, credentials, certificates, or raw logs. Use [private vulnerability reporting](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout/security/advisories/new) for security issues. If unavailable, contact [vartaxe@outlook.com](mailto:vartaxe@outlook.com) to arrange a private exchange.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Script version, ConfigMgr version, Windows ADK/WinPE version, Windows version, Windows PowerShell version, and whether the script ran in WinPE.
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Firmware and storage configuration
+      description: Describe firmware mode, storage controller, disk bus or model family, visible disk count, and any WinPE storage drivers. Do not provide serial numbers or internal asset names.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Result
+      description: Distinguish static checks, mocked unit tests, GitHub Actions, and actual disposable-media testing. Include steps, expected and actual behavior, exit code, and sanitized excerpts from Invoke-OSDDiskLayout.log and smsts.log.
+    validations:
+      required: true
