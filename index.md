@@ -18,6 +18,10 @@ Ambiguous, unhealthy, unverified, or unsafe targets stop before disk cleanup.
 > **Current version: 1.0.2. Not field-certified.** Automated tests do not
 > replace validation with the actual ConfigMgr boot image, OS image, drivers,
 > firmware, and disposable hardware.
+>
+> **`main` has unreleased script changes.** The v1.0.2 release does not include
+> them; [compare v1.0.2 with main](https://github.com/vartaxe/ConfigMgr-OSD-DiskPartitionLayout/compare/v1.0.2...main)
+> before choosing a deployment source and validate the exact revision.
 
 ## Before deployment
 
