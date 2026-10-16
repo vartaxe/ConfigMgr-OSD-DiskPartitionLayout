@@ -9,6 +9,8 @@
 
 Select one approved target disk and create a firmware-appropriate GPT or MBR layout in one Configuration Manager WinPE task-sequence step.
 
+**Claudio Mendes · Windows endpoint automation · [@vartaxe](https://github.com/vartaxe)**
+
 **Current version: 1.0.0.** This README follows `main`; published releases are versioned snapshots.
 
 [Quick start](#quick-start) | [Task-sequence integration](TASK-SEQUENCE.md) | [Compatibility](docs/COMPATIBILITY-MATRIX.md) | [Contributing](CONTRIBUTING.md) | [Security](SECURITY.md)
