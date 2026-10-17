@@ -41,6 +41,14 @@ BeforeAll {
         . ([scriptblock]::Create($Functions[0].Extent.Text))
     }
 
+    $script:SerialOutputCommands = @($Ast.FindAll({
+        param($Node)
+        $Node -is [System.Management.Automation.Language.CommandAst] -and
+            $Node.GetCommandName() -eq 'Write-Host' -and
+            ($Node.Extent.Text -like '*Disk {0}:*' -or
+             $Node.Extent.Text -like '*ERASING Disk*')
+    }, $true))
+
     function New-FixtureDisk {
         param(
             [int] $Number,
@@ -217,6 +225,36 @@ Describe 'Output aliases preserve task-sequence safety inputs (mocked, no disk w
         $script:WrittenValues['CustomOS'] | Should -BeExactly ''
         $script:WrittenValues['CustomDisk'] | Should -BeExactly ''
         $script:WrittenValues.ContainsKey('OSDMigrateUseHardlinks') | Should -BeFalse
+    }
+}
+
+Describe 'Disk serials stay out of user-visible output' {
+    It 'omits the selected serial from inventory and pre-erase messages' {
+        $InventoryCommand = @($script:SerialOutputCommands | Where-Object {
+            $_.Extent.Text -like '*Disk {0}:*'
+        })
+        $EraseCommand = @($script:SerialOutputCommands | Where-Object {
+            $_.Extent.Text -like '*ERASING Disk*'
+        })
+        $InventoryCommand.Count | Should -Be 1
+        $EraseCommand.Count | Should -Be 1
+
+        $SelectedSerial = 'SERIAL-DO-NOT-LOG-7C19'
+        $Item = New-FixtureDisk -Number 3 -Serial $SelectedSerial
+        $InventoryOutput = @(
+            & ([scriptblock]::Create($InventoryCommand[0].Extent.Text)) 6>&1 |
+                ForEach-Object { [string]$_ }
+        ) -join "`n"
+        $Selected = $Item
+        $EraseOutput = @(
+            & ([scriptblock]::Create($EraseCommand[0].Extent.Text)) 6>&1 |
+                ForEach-Object { [string]$_ }
+        ) -join "`n"
+
+        $InventoryOutput | Should -Match 'Disk 3: Approved SSD'
+        $EraseOutput | Should -Match 'ERASING Disk 3: Approved SSD'
+        $InventoryOutput | Should -Not -Match ([regex]::Escape($SelectedSerial))
+        $EraseOutput | Should -Not -Match ([regex]::Escape($SelectedSerial))
     }
 }
 
@@ -484,6 +522,25 @@ Describe 'Final disk recheck (no hardware writes)' {
         $Current.LogicalSectorSize = 4096
         { Assert-OSDDiskState -Current $Current -Selection $Selected } |
             Should -Throw
+    }
+
+    It 'still refuses to erase if the selected serial changes' {
+        $Selected = New-FixtureDisk -Number 3 -Serial 'APPROVED'
+        $Current = [pscustomobject]@{
+            Size = $Selected.SizeBytes
+            LogicalSectorSize = $Selected.LogicalSectorSize
+            BusType = $Selected.BusType
+            FriendlyName = $Selected.Model
+            SerialNumber = 'CHANGED'
+            UniqueId = $Selected.UniqueId
+            HealthStatus = $Selected.HealthStatus
+            IsOffline = $Selected.IsOffline
+            IsReadOnly = $Selected.IsReadOnly
+            IsClustered = $Selected.IsClustered
+        }
+
+        { Assert-OSDDiskState -Current $Current -Selection $Selected } |
+            Should -Throw 'Disk serial changed since selection; refusing to erase it.'
     }
 }
 
