@@ -1014,10 +1014,10 @@ try {
     }
 
     foreach ($Item in $Inventory) {
-        Write-Host ("Disk {0}: {1}; bus={2}; sizeGiB={3:N1}; sector={4} B; serial='{5}'; eligible={6}; {7}" -f
+        Write-Host ("Disk {0}: {1}; bus={2}; sizeGiB={3:N1}; sector={4} B; eligible={5}; {6}" -f
             $Item.Number, $Item.Model, $Item.BusType,
             ($Item.SizeBytes / 1GB), $Item.LogicalSectorSize,
-            $Item.Serial, $Item.Eligible, $Item.Reasons)
+            $Item.Eligible, $Item.Reasons)
     }
     $SpacesDisks = @($Inventory | Where-Object { $_.BusType -eq 'StorageSpaces' })
     if ($SpacesDisks.Count -gt 0 -and -not $AllowSurfaceStorageSpaces) {
@@ -1121,7 +1121,7 @@ try {
 
     # Recheck immediately before the first destructive command.
     Test-SameDisk -Selection $Selected
-    Write-Host "ERASING Disk $($Selected.Number): $($Selected.Model); serial=$($Selected.Serial)"
+    Write-Host "ERASING Disk $($Selected.Number): $($Selected.Model)"
     $Output = & $DiskPartPath /s $PlanPath 2>&1
     $DiskPartExitCode = $LASTEXITCODE
     foreach ($Line in $Output) { Write-Host ([string]$Line) }
