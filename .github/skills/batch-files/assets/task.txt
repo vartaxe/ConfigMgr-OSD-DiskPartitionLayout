@@ -34,6 +34,9 @@ set "_helpLinesMyTask=20"
 :: Config variables.
 set "_dryRunMyTask=0"
 set "_taskResultMyTask=0"
+set "_tmpDirCreatedMyTask=0"
+set "_tmpDirMyTask="
+set "_savedDirMyTask="
 set "_logFileMyTask=%TEMP%\%~n0.log"
 
 :: Define paths.
@@ -139,7 +142,7 @@ goto :eof
     setlocal EnableDelayedExpansion
     set "_tsMyTask=%DATE% %TIME%"
     echo [!_tsMyTask!] !_logTextMyTask!
-    echo [!_tsMyTask!] !_logTextMyTask! >>"%_logFileMyTask%"
+    echo [!_tsMyTask!] !_logTextMyTask! >>"!_logFileMyTask!"
     endlocal
     endlocal
 goto :eof
@@ -202,6 +205,12 @@ goto :eof
     set _checkParTwoMyTask=
     REM Append new variables above this line.
 
+    REM Restore the caller's directory before removing the temporary directory.
+    if DEFINED _savedDirMyTask (
+        cd /D "%_savedDirMyTask%"
+        set _savedDirMyTask=
+    )
+
     if "%_tmpDirCreatedMyTask%"=="1" if EXIST "%_tmpDirMyTask%" (
         rmdir /S /Q "%_tmpDirMyTask%" >nul 2>nul
         if EXIST "%_tmpDirMyTask%" (
@@ -214,9 +223,4 @@ goto :eof
     set _logMessageMyTask=
     set _logTextMyTask=
 
-    REM Restore original directory.
-    if DEFINED _savedDirMyTask (
-        cd /D "%_savedDirMyTask%"
-        set _savedDirMyTask=
-    )
     endlocal & exit /b %_taskResultMyTask%

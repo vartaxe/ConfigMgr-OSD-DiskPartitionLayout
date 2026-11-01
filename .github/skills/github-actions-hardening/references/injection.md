@@ -81,6 +81,7 @@ should match `^[A-Za-z0-9._/-]+$`).
 1. Grep every `run:` and `script:` for `${{`.
 2. For each, resolve what the expression points to.
 3. If it can be set by a non-collaborator → rewrite via `env:` with a quoted shell variable.
-4. `github.actor`, `github.repository`, `github.sha`, `github.ref` (for branch protection contexts)
-   and similar server-controlled values are not attacker-set, but a defense-in-depth `env:` rewrite
-   costs nothing.
+4. `github.actor`, `github.repository`, and `github.sha` are server-controlled values. Do not
+   treat `github.ref` as trusted: its branch or tag name is contributor-controlled and may contain
+   shell metacharacters. Pass ref-derived values through `env:` and a quoted shell variable, as
+   with other untrusted branch-name inputs.

@@ -67,6 +67,7 @@ FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 # Commands worth checking. Anything else in a fenced block is left alone.
 CMD_NPM_MANAGER = re.compile(r"(?:npm|pnpm|yarn|bun)(?:\.cmd|\.exe)?", re.I)
 NPM_SCRIPT = re.compile(r"[A-Za-z0-9:_.-]+")
+SHELL_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*\Z")
 NPM_PACKAGE_OPTIONS = {"--prefix", "--cwd", "--dir", "-C"}
 NPM_OPTIONS_WITH_VALUE = NPM_PACKAGE_OPTIONS | {
     "--cache", "--globalconfig", "--location", "--loglevel", "--registry",
@@ -84,6 +85,8 @@ CD_COMMAND = re.compile(r"^(?:cd|pushd)\s+(['\"]?)([^'\"]+?)\1\s*$")
 POPD_COMMAND = re.compile(r"^popd\s*$")
 
 MD_LINK = re.compile(r"!?\[[^\]]*\]\(([^)\s]+)")
+REFERENCE_DEFINITION = re.compile(r"^\s{0,3}\[([^\]]+)\]:\s*(.*)$")
+URI_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 BACKTICK = re.compile(r"`([^`\n]+)`")
 BACKTICK_RUN = re.compile(r"`+")
 MARKDOWN_FENCE = FENCE
@@ -113,7 +116,7 @@ POWERSHELL_ENV = re.compile(
     r"(?i)\$(?:env:([A-Za-z_][A-Za-z0-9_]*)|"
     r"\{env:([A-Za-z_][A-Za-z0-9_]*)\})")
 SHELL_ENV = re.compile(
-    r"\$(?:\{([A-Z][A-Z0-9_]*)\}|([A-Z][A-Z0-9_]*)\b)")
+    r"\$(?:\{([A-Z][A-Z0-9_]*)(?=[:+\-?}=])|([A-Z][A-Z0-9_]*)\b)")
 
 # Import forms across the languages handled above. Four alternatives, so findall
 # returns tuples and the caller takes the first non-empty group.
@@ -211,6 +214,30 @@ def npm_workspace_names(repo: Path, files: list[str]) -> dict[str, set[str]]:
     return names
 
 
+def workspace_glob_matches(directory: str, pattern: str) -> bool:
+    """Match workspace paths by segment so `*` cannot cross a directory boundary."""
+    path_parts = directory.replace("\\", "/").strip("/").split("/")
+    normalized_pattern = pattern.replace("\\", "/")
+    while normalized_pattern.startswith("./"):
+        normalized_pattern = normalized_pattern[2:]
+    pattern_parts = normalized_pattern.strip("/").split("/")
+
+    def match(path_index: int, pattern_index: int) -> bool:
+        if pattern_index == len(pattern_parts):
+            return path_index == len(path_parts)
+        if pattern_parts[pattern_index] == "**":
+            return (match(path_index, pattern_index + 1)
+                    or (path_index < len(path_parts)
+                        and match(path_index + 1, pattern_index)))
+        return (
+            path_index < len(path_parts)
+            and fnmatch.fnmatchcase(path_parts[path_index], pattern_parts[pattern_index])
+            and match(path_index + 1, pattern_index + 1)
+        )
+
+    return bool(path_parts and pattern_parts) and match(0, 0)
+
+
 def npm_workspaces(repo: Path, npm: dict[str, set[str]]) -> list[set[str]] | None:
     """Resolve all declared workspaces, or decline to check an unknown selection."""
     root_package = repo / "package.json"
@@ -233,8 +260,8 @@ def npm_workspaces(repo: Path, npm: dict[str, set[str]]) -> list[set[str]] | Non
     directories = set(npm) - {"."}
     selected = sorted(
         directory for directory in directories
-        if any(fnmatch.fnmatchcase(directory, pattern) for pattern in include)
-        and not any(fnmatch.fnmatchcase(directory, pattern) for pattern in exclude)
+        if any(workspace_glob_matches(directory, pattern) for pattern in include)
+        and not any(workspace_glob_matches(directory, pattern) for pattern in exclude)
     )
     if not selected or any(directory not in npm for directory in selected):
         return None
@@ -277,24 +304,37 @@ def fence_closes(line: str, marker: re.Match[str], fence_char: str,
             and not line[marker.end():].strip())
 
 
-def directory_from(repo: Path, current: Path, target: str) -> Path:
+def directory_from(repo: Path, current: Path, target: str) -> Path | None:
     """Resolve a documented cd/prefix directory without leaving the repository."""
+    if dynamic_directory_target(target):
+        return None
     target_path = Path(target.replace("\\", "/"))
     candidate = target_path if target_path.is_absolute() else repo / current / target_path
     try:
         return candidate.resolve().relative_to(repo.resolve())
-    except ValueError:
-        return current
+    except (OSError, ValueError):
+        return None
 
 
 def make_directory_from(repo: Path, current: Path, target: str) -> Path | None:
     """Resolve a Make -C directory without falling back to another inventory."""
+    if dynamic_directory_target(target):
+        return None
     target_path = Path(target.replace("\\", "/"))
     candidate = target_path if target_path.is_absolute() else repo / current / target_path
     try:
         return candidate.resolve().relative_to(repo.resolve())
-    except ValueError:
+    except (OSError, ValueError):
         return None
+
+
+def dynamic_directory_target(target: str) -> bool:
+    """Whether a directory operand depends on shell expansion or a placeholder."""
+    return (
+        target.startswith("~")
+        or PLACEHOLDER.search(target) is not None
+        or any(char in target for char in "$`*?[]{}<>")
+    )
 
 
 def makefile_targets(repo: Path, rel: str) -> set[str]:
@@ -336,11 +376,6 @@ def npm_workspace_package_scripts(
         return None
     if directory in npm:
         return npm[directory]
-
-    if "/" not in selector and "\\" not in selector:
-        matches = [path for path in npm if Path(path).name == selector]
-        if len(matches) == 1:
-            return npm[matches[0]]
 
     matches = workspace_names.get(selector, set())
     if len(matches) == 1:
@@ -384,6 +419,65 @@ def shell_tokens(command: str) -> list[str]:
     if started:
         tokens.append("".join(token))
     return tokens
+
+
+def shell_executable_index(tokens: list[str]) -> int | None:
+    """Return the command position after simple environment assignments and wrappers."""
+    index = 0
+    wrappers = {"builtin", "command", "exec", "nohup", "time"}
+    while index < len(tokens):
+        token = tokens[index]
+        if SHELL_ASSIGNMENT.fullmatch(token):
+            index += 1
+            continue
+        if token in wrappers:
+            index += 1
+            continue
+        if token == "env":
+            index += 1
+            while index < len(tokens):
+                token = tokens[index]
+                if token == "--":
+                    index += 1
+                    break
+                if token in {"-i", "--ignore-environment"}:
+                    index += 1
+                    continue
+                if token in {"-u", "--unset", "-C", "--chdir"}:
+                    index += 2
+                    continue
+                if token.startswith(("--unset=", "--chdir=")):
+                    index += 1
+                    continue
+                if SHELL_ASSIGNMENT.fullmatch(token):
+                    index += 1
+                    continue
+                break
+            continue
+        if token == "sudo":
+            index += 1
+            while index < len(tokens):
+                token = tokens[index]
+                if token == "--":
+                    index += 1
+                    break
+                if token in {"-u", "-g", "-h", "-p", "-C", "-D", "-R", "-T"}:
+                    index += 2
+                    continue
+                if token.startswith("-"):
+                    index += 1
+                    continue
+                break
+            continue
+        if token == "nice":
+            index += 1
+            if index < len(tokens) and tokens[index] == "-n":
+                index += 2
+            elif index < len(tokens) and re.fullmatch(r"-\d+", tokens[index]):
+                index += 1
+            continue
+        return index
+    return None
 
 
 def strip_shell_comment(command: str) -> str:
@@ -449,6 +543,43 @@ def shell_segments(command: str) -> list[str]:
     return segments
 
 
+def shell_pipeline_parts(command: str) -> list[str]:
+    """Split pipeline stages without splitting quoted or escaped pipe characters."""
+    stages = []
+    start = 0
+    quote = None
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if quote == "'":
+            if char == "'":
+                quote = None
+            index += 1
+            continue
+        if char == "\\":
+            index += 2
+            continue
+        if quote:
+            if char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            index += 1
+            continue
+        if char == "|":
+            stages.append(command[start:index])
+            index += 1
+            while index < len(command) and command[index].isspace():
+                index += 1
+            start = index
+        else:
+            index += 1
+    stages.append(command[start:])
+    return stages
+
+
 def shell_unquoted_text(command: str) -> str:
     """Mask quoted text while retaining positions for command-pattern matching."""
     result = list(command)
@@ -491,9 +622,7 @@ def shell_directory_change(
         return False, cwd
 
     target = cd_match.group(2).strip()
-    dynamic_target = (
-        target.startswith("~")
-        or any(char in target for char in "$`*?[]{}<>"))
+    dynamic_target = dynamic_directory_target(target)
     if command.startswith("pushd"):
         directory_stack.append(cwd)
         if dynamic_target:
@@ -521,12 +650,16 @@ def npm_commands_in_line(repo: Path, npm: dict[str, set[str]], line: str,
     line = strip_shell_comment(line)
     directory_stack = directory_stack if directory_stack is not None else []
     for segment in shell_segments(line):
-        changed, cwd = shell_directory_change(repo, segment, cwd, directory_stack)
-        if changed:
-            continue
-        tokens = shell_tokens(segment)
-        for manager_index, token in enumerate(tokens):
-            if not CMD_NPM_MANAGER.fullmatch(token):
+        stages = shell_pipeline_parts(segment)
+        is_pipeline = len(stages) > 1
+        for stage in stages:
+            if not is_pipeline:
+                changed, cwd = shell_directory_change(repo, stage, cwd, directory_stack)
+                if changed:
+                    continue
+            tokens = shell_tokens(stage)
+            manager_index = shell_executable_index(tokens)
+            if manager_index is None or not CMD_NPM_MANAGER.fullmatch(tokens[manager_index]):
                 continue
             if cwd is None:
                 continue
@@ -577,6 +710,8 @@ def npm_commands_in_line(repo: Path, npm: dict[str, set[str]], line: str,
                     i += 1
                 i += 1
             command_cwd = directory_from(repo, cwd, prefix) if prefix else cwd
+            if command_cwd is None:
+                continue
             if_present = "--if-present" in arguments
             if workspace_selectors:
                 selected_scripts = []
@@ -610,12 +745,16 @@ def make_commands_in_line(
     line = strip_shell_comment(line)
     directory_stack = directory_stack if directory_stack is not None else []
     for segment in shell_segments(line):
-        changed, cwd = shell_directory_change(repo, segment, cwd, directory_stack)
-        if changed:
-            continue
-        tokens = shell_tokens(segment)
-        for make_index, token in enumerate(tokens):
-            if token != "make":
+        stages = shell_pipeline_parts(segment)
+        is_pipeline = len(stages) > 1
+        for stage in stages:
+            if not is_pipeline:
+                changed, cwd = shell_directory_change(repo, stage, cwd, directory_stack)
+                if changed:
+                    continue
+            tokens = shell_tokens(stage)
+            make_index = shell_executable_index(tokens)
+            if make_index is None or tokens[make_index] != "make":
                 continue
             if cwd is None:
                 continue
@@ -795,6 +934,169 @@ def markdown_lines_without_code(text: str) -> list[tuple[int, str]]:
     ]
 
 
+def markdown_reference_label(label: str) -> str:
+    """Normalize a Markdown reference label for case-insensitive lookup."""
+    return re.sub(r"\s+", " ", label).strip().casefold()
+
+
+def markdown_bracket_end(text: str, start: int) -> int | None:
+    """Find a closing bracket while respecting nested brackets and escapes."""
+    depth = 0
+    index = start
+    while index < len(text):
+        if text[index] == "\\":
+            index += 2
+            continue
+        if text[index] == "[":
+            depth += 1
+        elif text[index] == "]":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return None
+
+
+def markdown_link_destination(
+        text: str, start: int, require_closing: bool = True
+        ) -> tuple[str, int] | None:
+    """Read an inline link destination without truncating balanced parentheses."""
+    index = start
+    while index < len(text) and text[index].isspace():
+        index += 1
+    if index >= len(text):
+        return None
+
+    if text[index] == "<":
+        index += 1
+        destination = []
+        while index < len(text):
+            if text[index] == "\\" and index + 1 < len(text):
+                destination.append(text[index + 1])
+                index += 2
+            elif text[index] == ">":
+                index += 1
+                break
+            else:
+                destination.append(text[index])
+                index += 1
+        else:
+            return None
+    else:
+        destination = []
+        depth = 0
+        while index < len(text):
+            char = text[index]
+            if char == "\\" and index + 1 < len(text):
+                destination.append(text[index + 1])
+                index += 2
+            elif char == "(":
+                depth += 1
+                destination.append(char)
+                index += 1
+            elif char == ")":
+                if depth == 0:
+                    if not destination:
+                        return None
+                    return "".join(destination), index + 1
+                depth -= 1
+                destination.append(char)
+                index += 1
+            elif char.isspace() and depth == 0:
+                break
+            else:
+                destination.append(char)
+                index += 1
+
+        if depth:
+            return None
+        if not destination:
+            return None
+
+    if not require_closing:
+        return "".join(destination), index
+
+    while index < len(text) and text[index].isspace():
+        index += 1
+    if index < len(text) and text[index] in {'"', "'"}:
+        quote = text[index]
+        index += 1
+        while index < len(text):
+            if text[index] == "\\":
+                index += 2
+            elif text[index] == quote:
+                index += 1
+                break
+            else:
+                index += 1
+        else:
+            return None
+        while index < len(text) and text[index].isspace():
+            index += 1
+    if index >= len(text) or text[index] != ")":
+        return None
+    return "".join(destination), index + 1
+
+
+def markdown_links(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
+    """Extract inline and reference-style Markdown links from code-free lines."""
+    references: dict[str, str] = {}
+    definition_lines = set()
+    for line_number, line in lines:
+        definition = REFERENCE_DEFINITION.match(line)
+        if not definition:
+            continue
+        raw_destination = definition.group(2).strip()
+        destination = markdown_link_destination(
+            raw_destination, 0, require_closing=False)
+        if destination and destination[0]:
+            references[markdown_reference_label(definition.group(1))] = destination[0]
+            definition_lines.add(line_number)
+
+    links = []
+    for line_number, line in lines:
+        if line_number in definition_lines:
+            continue
+        index = 0
+        while index < len(line):
+            if line[index] == "\\":
+                index += 2
+                continue
+            if line[index] != "[":
+                index += 1
+                continue
+            closing = markdown_bracket_end(line, index)
+            if closing is None:
+                index += 1
+                continue
+
+            label = line[index + 1:closing]
+            after = closing + 1
+            if after < len(line) and line[after] == "(":
+                destination = markdown_link_destination(line, after + 1)
+                if destination:
+                    links.append((line_number, destination[0]))
+                index += 1
+                continue
+
+            reference = None
+            if after < len(line) and line[after] == "[":
+                reference_end = markdown_bracket_end(line, after)
+                if reference_end is not None:
+                    reference_label = line[after + 1:reference_end] or label
+                    reference = markdown_reference_label(reference_label)
+                    if reference in references:
+                        links.append((line_number, references[reference]))
+                    index = reference_end + 1
+                    continue
+            else:
+                reference = markdown_reference_label(label)
+            if reference in references:
+                links.append((line_number, references[reference]))
+            index += 1
+    return links
+
+
 def documented_script_exists(repo: Path, doc: str, candidate: str) -> bool:
     """Resolve command paths from the repo, doc directory, or containing skill root."""
     doc_dir = (repo / doc).parent
@@ -812,8 +1114,7 @@ def documented_script_exists(repo: Path, doc: str, candidate: str) -> bool:
 
 def script_directory_from(repo: Path, current: Path | None, target: str) -> Path | None:
     """Resolve a literal shell directory without guessing at expansions or external paths."""
-    if (PLACEHOLDER.search(target) or target.startswith("~")
-            or any(char in target for char in "$`*?[]{}<>")):
+    if dynamic_directory_target(target):
         return None
 
     target_path = Path(target.replace("\\", "/"))
@@ -837,30 +1138,44 @@ def script_commands_in_line(
     commands = []
     line = strip_shell_comment(line)
     for segment in shell_segments(line):
-        command = segment.strip()
-        cd_match = CD_COMMAND.match(command)
-        if cd_match:
-            target = cd_match.group(2).strip()
-            resolved = script_directory_from(repo, cwd, target)
-            if command.startswith("pushd"):
-                directory_stack.append(cwd)
-                cwd = resolved
-            else:
-                cwd = resolved
-            explicit_directory_change = True
-            continue
-        if POPD_COMMAND.fullmatch(command):
-            if directory_stack:
-                cwd = directory_stack.pop()
-            explicit_directory_change = True
-            continue
+        stages = shell_pipeline_parts(segment)
+        is_pipeline = len(stages) > 1
+        for stage in stages:
+            command = stage.strip()
+            if not is_pipeline:
+                cd_match = CD_COMMAND.match(command)
+                if cd_match:
+                    target = cd_match.group(2).strip()
+                    resolved = script_directory_from(repo, cwd, target)
+                    if command.startswith("pushd"):
+                        directory_stack.append(cwd)
+                    cwd = resolved
+                    explicit_directory_change = True
+                    continue
+                if POPD_COMMAND.fullmatch(command):
+                    if directory_stack:
+                        cwd = directory_stack.pop()
+                    explicit_directory_change = True
+                    continue
 
-        invocations = CMD_SCRIPT.findall(shell_unquoted_text(segment))
-        invocations.extend(
-            (match.group(0), match.group(2))
-            for match in CMD_SCRIPT_QUOTED.finditer(segment))
-        for whole, inner in invocations:
-            candidate = inner or whole
+            tokens = shell_tokens(stage)
+            executable_index = shell_executable_index(tokens)
+            if executable_index is None:
+                continue
+            executable = tokens[executable_index]
+            candidate = None
+            if re.fullmatch(
+                    r"(?:python3?|node|bash|sh|ruby|pwsh|powershell)(?:\.cmd|\.exe)?",
+                    executable, re.I):
+                operand_index = executable_index + 1
+                if operand_index < len(tokens) and tokens[operand_index].lower() == "-file":
+                    operand_index += 1
+                elif operand_index < len(tokens) and tokens[operand_index].startswith("-"):
+                    continue
+                if operand_index < len(tokens):
+                    candidate = tokens[operand_index]
+            elif re.fullmatch(r"\./[A-Za-z0-9_./-]+", executable):
+                candidate = executable
             if candidate and not PLACEHOLDER.search(candidate):
                 commands.append((candidate, cwd, explicit_directory_change))
     return cwd, directory_stack, explicit_directory_change, commands
@@ -998,37 +1313,114 @@ def powershell_env_reads(text: str) -> list[tuple[str, int]]:
 def shell_env_reads(text: str) -> list[tuple[str, int]]:
     """Return shell parameter expansions outside comments and single-quoted text."""
     found = []
+    local_names: set[str] = set()
     for line_number, line in enumerate(text.splitlines(), start=1):
-        quote = None
-        index = 0
-        while index < len(line):
-            char = line[index]
-            if char == "\\" and quote != "'":
-                index += 2
-                continue
-            if quote == "'":
-                if char == "'":
-                    quote = None
-                index += 1
-                continue
-            if quote == '"':
-                if char == '"':
-                    quote = None
+        command = strip_shell_comment(line)
+        for segment in shell_segments(command):
+            for stage in shell_pipeline_parts(segment):
+                tokens = shell_tokens(stage)
+                assignment_tokens = []
+                index = 0
+                while index < len(tokens) and SHELL_ASSIGNMENT.fullmatch(tokens[index]):
+                    assignment_tokens.append(tokens[index])
                     index += 1
-                    continue
-            elif char in {'"', "'"}:
-                quote = char
-                index += 1
-                continue
-            elif char == "#" and (index == 0 or line[index - 1].isspace()):
-                break
+                if tokens and tokens[0] in {"export", "local", "declare", "typeset"}:
+                    assignment_tokens.extend(
+                        token for token in tokens[1:]
+                        if SHELL_ASSIGNMENT.fullmatch(token))
+                quote = None
+                index = 0
+                while index < len(stage):
+                    char = stage[index]
+                    if char == "\\" and quote != "'":
+                        index += 2
+                        continue
+                    if quote == "'":
+                        if char == "'":
+                            quote = None
+                        index += 1
+                        continue
+                    if quote == '"':
+                        if char == '"':
+                            quote = None
+                            index += 1
+                            continue
+                    elif char in {'"', "'"}:
+                        quote = char
+                        index += 1
+                        continue
 
-            match = SHELL_ENV.match(line, index)
-            if match:
-                found.append((match.group(1) or match.group(2), line_number))
-                index = match.end()
-            else:
-                index += 1
+                    match = SHELL_ENV.match(stage, index)
+                    if match:
+                        name = match.group(1) or match.group(2)
+                        if name not in local_names:
+                            found.append((name, line_number))
+                        index = match.end()
+                    else:
+                        index += 1
+                local_names.update(token.split("=", 1)[0] for token in assignment_tokens)
+    return found
+
+
+def python_env_reads(text: str) -> list[tuple[str, int]]:
+    """Return Python environment reads from executable AST nodes, not comments or strings."""
+    try:
+        module = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return []
+
+    os_aliases = {"os"}
+    getenv_aliases = set()
+    environ_aliases = set()
+    for node in ast.walk(module):
+        if isinstance(node, ast.Import):
+            for item in node.names:
+                if item.name == "os":
+                    os_aliases.add(item.asname or "os")
+        elif isinstance(node, ast.ImportFrom) and node.module == "os":
+            for item in node.names:
+                if item.name == "getenv":
+                    getenv_aliases.add(item.asname or item.name)
+                elif item.name == "environ":
+                    environ_aliases.add(item.asname or item.name)
+
+    def environment_expression(node: ast.AST) -> bool:
+        return (
+            isinstance(node, ast.Name) and node.id in environ_aliases
+            or isinstance(node, ast.Attribute)
+            and node.attr == "environ"
+            and isinstance(node.value, ast.Name)
+            and node.value.id in os_aliases
+        )
+
+    found = []
+    for node in ast.walk(module):
+        if isinstance(node, ast.Call) and node.args:
+            function = node.func
+            is_getenv = (
+                isinstance(function, ast.Name)
+                and function.id in getenv_aliases
+            ) or (
+                isinstance(function, ast.Attribute)
+                and function.attr == "getenv"
+                and isinstance(function.value, ast.Name)
+                and function.value.id in os_aliases
+            )
+            is_environ_get = (
+                isinstance(function, ast.Attribute)
+                and function.attr == "get"
+                and environment_expression(function.value)
+            )
+            if is_getenv or is_environ_get:
+                name = node.args[0]
+                if isinstance(name, ast.Constant) and isinstance(name.value, str):
+                    found.append((name.value, node.lineno))
+        elif isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load):
+            if not environment_expression(node.value):
+                continue
+            key = node.slice
+            if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                found.append((key.value, node.lineno))
     return found
 
 
@@ -1044,6 +1436,10 @@ def env_names_from_code(repo: Path, files: list[str]) -> dict[str, list[str]]:
             continue
         if Path(rel).suffix.lower() in {".ps1", ".psm1", ".psd1"}:
             for name, line in powershell_env_reads(text):
+                found.setdefault(name, []).append(f"{rel}:{line}")
+            continue
+        if Path(rel).suffix.lower() == ".py":
+            for name, line in python_env_reads(text):
                 found.setdefault(name, []).append(f"{rel}:{line}")
             continue
         for i, line in enumerate(text.splitlines(), start=1):
@@ -1260,18 +1656,17 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
                             f"documents running `{candidate}`, which does not exist.")
 
         # 2 and 3. links and backticked paths
-        for i, line in markdown_lines_without_code(text):
-            for target in MD_LINK.findall(line):
-                local_target = target.split("#", 1)[0].split("?", 1)[0].strip()
-                t = unquote(local_target)
-                if not t or t.startswith(("//", "http://", "https://", "mailto:", "#", "tel:", "data:")):
-                    continue
-                if PLACEHOLDER.search(t):
-                    continue
-                target_path = Path(t.lstrip("/")) if t.startswith("/") else Path(doc).parent / t
-                if not (repo / target_path).exists():
-                    add("broken-link", "high", doc, i,
-                        f"relative link `{t}` does not resolve.")
+        for i, target in markdown_links(markdown_lines_without_code(text)):
+            local_target = target.split("#", 1)[0].split("?", 1)[0].strip()
+            t = unquote(local_target)
+            if not t or URI_SCHEME.match(t) or t.startswith(("//", "#")):
+                continue
+            if PLACEHOLDER.search(t):
+                continue
+            target_path = Path(t.lstrip("/")) if t.startswith("/") else Path(doc).parent / t
+            if not (repo / target_path).exists():
+                add("broken-link", "high", doc, i,
+                    f"relative link `{t}` does not resolve.")
         for i, line in enumerate(text.splitlines(), start=1):
             for chunk in (BACKTICK.findall(line) if check_paths else []):
                 c = chunk.strip()
@@ -1309,30 +1704,11 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
 
     # 4. env vars, both directions
     in_code = env_names_from_code(repo, files)
-    powershell_names = {
-        name.upper()
-        for name, readers in in_code.items()
-        if readers and all(
-            Path(reader.rsplit(":", 1)[0]).suffix.lower() in {".ps1", ".psm1", ".psd1"}
-            for reader in readers)
-    }
-    in_docs = env_names_documented(repo, files, set(in_code) | powershell_names)
+    in_docs = env_names_documented(repo, files, set(in_code))
     dead = unreferenced_modules(repo, files)
-
-    def powershell_readers(name: str) -> list[str]:
-        return [
-            reader
-            for code_name, readers in in_code.items()
-            if code_name.casefold() == name.casefold()
-            for reader in readers
-            if Path(reader.rsplit(":", 1)[0]).suffix.lower()
-            in {".ps1", ".psm1", ".psd1"}
-        ]
 
     for name, where in sorted(in_docs.items()):
         readers = in_code.get(name, [])
-        if not readers:
-            readers = powershell_readers(name)
         doc_path, _, doc_line = where.rpartition(":")
         if not readers:
             add("documented-unused-env", "medium", doc_path, int(doc_line),
@@ -1347,11 +1723,6 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
                 source=where_read)
     for name, readers in sorted(in_code.items()):
         documented = name in in_docs
-        if not documented and readers and all(
-                Path(reader.rsplit(":", 1)[0]).suffix.lower()
-                in {".ps1", ".psm1", ".psd1"} for reader in readers):
-            documented = any(doc_name.casefold() == name.casefold()
-                             for doc_name in in_docs)
         if not documented:
             add("undocumented-env", "medium", "(docs)", None,
                 f"`{name}` is read by the code but is not documented anywhere, "

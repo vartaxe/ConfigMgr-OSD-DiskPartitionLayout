@@ -53,6 +53,9 @@ BeforeAll {
             [switch]$NamedVariable
         )
 
+        $batchValue = $Value.Replace('^', '^^').Replace('!', '^!')
+        $batchExpectedValue = $ExpectedValue.Replace('^', '^^').Replace('!', '^!')
+        $batchWidth = if ($null -eq $Width) { '' } else { $Width.Replace('^', '^^').Replace('!', '^!') }
         $call = if ($NamedVariable) {
             'call "{0}" {1} testValue' -f $script:ExecutablePath, $Function
         } else {
@@ -60,17 +63,16 @@ BeforeAll {
         }
         $lines = @(
             '@echo off'
-            'setlocal DisableDelayedExpansion'
-            ('set "testValue={0}"' -f $Value)
-            ('set "expectedValue={0}"' -f $ExpectedValue)
-            ('set "testWidth={0}"' -f $Width)
-            ('set "expectedWidth={0}"' -f $Width)
-            'set "probe=enabled"'
-            'endlocal & set "testValue=%testValue%" & set "expectedValue=%expectedValue%" & set "testWidth=%testWidth%" & set "expectedWidth=%expectedWidth%" & set "probe=%probe%"'
             'setlocal EnableDelayedExpansion'
+            ('set "testValue={0}"' -f $batchValue)
+            ('set "expectedValue={0}"' -f $batchExpectedValue)
+            ('set "testWidth={0}"' -f $batchWidth)
+            ('set "expectedWidth={0}"' -f $batchWidth)
+            'set "probe=enabled"'
             $call
             'set "_callStatus=!ERRORLEVEL!"'
             'if "!testValue!"=="!expectedValue!" echo VALUE_PRESERVED'
+            'echo VALUE=!testValue!'
             'if "!testWidth!"=="!expectedWidth!" echo WIDTH_PRESERVED'
             'if "!probe!"=="enabled" echo DELAYED_EXPANSION_RESTORED'
             'endlocal & exit /b %_callStatus%'
@@ -148,6 +150,14 @@ Describe 'Batch library padRight' {
             -Value 'A!B' -ExpectedValue 'a!b' -NamedVariable
         $result.Output | Should -Match 'VALUE_PRESERVED'
         $result.Output | Should -Match 'DELAYED_EXPANSION_RESTORED'
+        $result.ExitCode | Should -Be 0
+    }
+
+    It 'preserves mixed caret and exclamation marks in named-variable outputs' {
+        $result = Invoke-BatchLibraryWithDelayedExpansion -Function 'trimWhitespace' `
+            -Value '  A^!B  ' -ExpectedValue 'A^!B' -NamedVariable
+        $result.Output | Should -Match 'VALUE=A\^!B'
+        $result.Output | Should -Match 'VALUE_PRESERVED'
         $result.ExitCode | Should -Be 0
     }
 

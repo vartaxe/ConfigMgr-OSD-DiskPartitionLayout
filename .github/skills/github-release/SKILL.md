@@ -13,8 +13,11 @@ from analysis through changelog authoring and PR creation. It uses `gh` (GitHub 
 and `git` for repository operations and follows the repository's own tools for
 validation.
 
-Steps 1 - 4 are **read-only reconnaissance** nothing is written to the repo until
-Step 5, once the version number is confirmed.
+Steps 1 - 4 do not edit release metadata or create a release branch, but Step 1
+checks out and pulls `main` and Step 2 fetches tags; those commands can change the
+working tree and local refs. Verify the starting status and explain these effects
+before running them. No release metadata is written until Step 5, after version
+confirmation.
 
 ## When to Use This Skill
 
@@ -62,6 +65,9 @@ its output. Pause and ask for confirmation only when explicitly noted.
 
 ### Step 1 - Ensure main is up to date
 
+This changes the local branch and may update working-tree files. Confirm the
+repository is clean first; do not describe this checkout/pull as read-only.
+
 ```bash
 git checkout main
 git pull origin main
@@ -73,6 +79,8 @@ is confirmed.
 ---
 
 ### Step 2 - Grab the latest version tag
+
+Fetching tags updates local Git refs even though it does not edit release files.
 
 > **Why not `gh release list`?** GitHub Releases are an optional layer on top of Git
 > tags. Many repos tag releases with `git tag` without ever creating a GitHub Release,
@@ -92,6 +100,7 @@ PREV_TAG=$(
   head -1 |
   cut -f2-
 )
+if [ -z "$PREV_TAG" ]; then PREV_TAG="(none)"; fi
 echo "Latest tag: $PREV_TAG"
 ```
 
@@ -114,20 +123,24 @@ $prevTag = git tag |
 if ($prevTag) {
   $prevSha = git rev-list -n 1 $prevTag
 } else {
-  $prevSha = git rev-list --max-parents=0 HEAD
+  $prevTag = '(none)'
+  $prevSha = cmd /d /c 'git hash-object -t tree --stdin <NUL'
 }
 
 Write-Output "Latest tag: $prevTag"
 ```
 
-Then verify the tag exists on the remote (not just locally):
+When a stable version tag was found, verify it exists on the remote (not just locally):
 
 ```bash
-git ls-remote --tags origin | grep "refs/tags/$PREV_TAG$"
+if [ "$PREV_TAG" != "(none)" ]; then
+  git ls-remote --tags origin | grep "refs/tags/$PREV_TAG$"
+fi
 ```
 
-If the remote check returns nothing, warn the user that the tag appears to be local-only
-and hasn't been pushed - they may want to push it before continuing.
+If the remote check returns nothing for a real tag, warn the user that it appears
+local-only and has not been pushed. No remote tag check is needed when `PREV_TAG`
+is `(none)`.
 
 - `PREV_TAG` is the tag name exactly as found (e.g. `v1.4.2`). Strip any leading `v`
   when doing arithmetic; preserve it when naming things.
@@ -136,7 +149,7 @@ and hasn't been pushed - they may want to push it before continuing.
   spelling for checkout and output. Equal numeric versions are resolved deterministically
   by tag-name order.
 - If **no tags exist at all**, treat `PREV_TAG` as `(none)`, set `PREV_SHA` to the
-  first commit, and propose `1.0.0` as the new version. Continue through Step 3,
+  empty Git tree, and propose `1.0.0` as the new version. Continue through Step 3,
   including release-metadata and automation discovery in Step 3d. In Step 4, skip only
   the bump calculation; still present `1.0.0` and its rationale and wait for the owner's
   confirmation before proceeding.
@@ -144,7 +157,11 @@ and hasn't been pushed - they may want to push it before continuing.
   `git rev-list --max-parents=0 HEAD` and warn the user.
 
 ```bash
-PREV_SHA=$(git rev-list -n 1 "$PREV_TAG" 2>/dev/null || git rev-list --max-parents=0 HEAD)
+if [ "$PREV_TAG" = "(none)" ]; then
+  PREV_SHA=$(git hash-object -t tree --stdin </dev/null)
+else
+  PREV_SHA=$(git rev-list -n 1 "$PREV_TAG" 2>/dev/null || git rev-list --max-parents=0 HEAD)
+fi
 ```
 
 ---
@@ -199,7 +216,11 @@ suggest they define public interfaces (e.g. `index.*`, `api.*`, `exports.*`,
 #### 3b - Commit log (secondary signal)
 
 ```bash
-git log "$PREV_SHA"..HEAD --oneline --no-merges
+if [ "$PREV_TAG" = "(none)" ]; then
+  git log HEAD --oneline --no-merges
+else
+  git log "$PREV_TAG"..HEAD --oneline --no-merges
+fi
 ```
 
 Use this to:
@@ -288,11 +309,12 @@ git push -u origin release/vX.Y.Z
 
 ### Step 6 - Update release metadata and CHANGELOG.md
 
-Update the version metadata, project-specific release notes, and checksum files
-identified in Step 3d using the repository's release conventions. If the project
+Update the version metadata and project-specific release notes identified in Step 3d
+using the repository's release conventions. If the project
 requires an exact version heading in a release-notes file, add it. Run the repository's
-documented version/checksum validation before proceeding; do not stage unrelated
-generated or local files.
+documented version validation before proceeding; do not stage unrelated generated or
+local files. Defer checksum regeneration and checksum validation until the changelog and
+all other maintained files have their final contents; perform both in Step 7.
 
 Read the existing `CHANGELOG.md` (or create it if absent). Follow the
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format strictly.
@@ -351,6 +373,10 @@ Incorporate feedback, then write to disk.
 ---
 
 ### Step 7 - Validate, commit and push
+
+After the changelog and every maintained file are final, regenerate checksums last and
+run the full documented validation, including checksum verification. Do not validate
+the manifest before the changelog is written.
 
 ```bash
 git status --short

@@ -229,6 +229,55 @@ continues inside this code span`
                 "broken-link",
                 {finding["kind"] for finding in result["findings"]})
 
+    def test_markdown_links_handle_balanced_parentheses_images_and_references(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            docs = repo / "docs"
+            docs.mkdir()
+            (docs / "setup(v2).md").write_text("# Setup\n", encoding="utf-8")
+            (docs / "guide target.md").write_text("# Guide\n", encoding="utf-8")
+            assets = repo / "assets"
+            assets.mkdir()
+            (assets / "preview.png").write_bytes(b"image")
+            document = docs / "README.md"
+            document.write_text(
+                "[Setup](setup(v2).md)\n"
+                "[![Preview](../assets/preview.png)](setup(v2).md)\n"
+                "[Guide][guide]\n"
+                "[Collapsed][]\n"
+                "[Shortcut]\n"
+                "[guide]: <guide%20target.md> \"Guide title\"\n"
+                "[collapsed]: guide%20target.md\n"
+                "[shortcut]: guide%20target.md\n"
+                "[Missing](missing(v2).md)\n"
+                "[FTP](ftp://ftp.example.org/pub)\n"
+                "[SSH](ssh://git.example.org/repo)\n",
+                encoding="utf-8")
+
+            result = DOCS_DRIFT.build(
+                repo,
+                ["docs/README.md", "docs/setup(v2).md", "docs/guide target.md",
+                 "assets/preview.png"])
+            broken = [
+                finding for finding in result["findings"]
+                if finding["kind"] == "broken-link"
+            ]
+
+            self.assertEqual(len(broken), 1)
+            self.assertIn("missing(v2).md", broken[0]["detail"])
+
+    def test_unparseable_markdown_link_is_skipped(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            doc = repo / "README.md"
+            doc.write_text("[Unclosed](docs/setup(v2).md\n", encoding="utf-8")
+
+            result = DOCS_DRIFT.build(repo, ["README.md"])
+
+            self.assertNotIn(
+                "broken-link",
+                {finding["kind"] for finding in result["findings"]})
+
     def test_unmatched_inline_code_does_not_pair_across_paragraphs(self):
         text = "`unmatched opener\n\n[Broken](missing.md) `"
 
@@ -238,7 +287,7 @@ continues inside this code span`
             [line for _, line in cleaned],
             ["`unmatched opener", "", "[Broken](missing.md) `"])
 
-    def test_powershell_env_matching_is_case_insensitive_in_build(self):
+    def test_powershell_env_matching_preserves_case_without_windows_target(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
             (repo / "main.ps1").write_text(
@@ -252,7 +301,9 @@ continues inside this code span`
                 if finding["kind"] in {"documented-unused-env", "undocumented-env"}
             ]
 
-            self.assertEqual(env_findings, [])
+            self.assertEqual(
+                {finding["kind"] for finding in env_findings},
+                {"documented-unused-env", "undocumented-env"})
 
     def test_powershell_env_same_case_matches_in_build(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -363,6 +414,45 @@ continues inside this code span`
             self.assertNotIn(
                 "undocumented-env",
                 {finding["kind"] for finding in result["findings"]})
+
+    def test_shell_default_expansions_are_reads_and_local_assignments_are_not(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            script = repo / "main.sh"
+            script.write_text(
+                "RETRY_COUNT=3\n"
+                'echo "$RETRY_COUNT"\n'
+                'PORT=${PORT:-3000}\n'
+                'echo "${PORT:-3000}"\n'
+                'echo "${HOST:?required}"\n'
+                'echo "${FEATURE:+enabled}"\n'
+                'echo "${MODE:=default}"\n',
+                encoding="utf-8")
+
+            env_names = DOCS_DRIFT.env_names_from_code(repo, ["main.sh"])
+
+            self.assertEqual(
+                set(env_names), {"PORT", "HOST", "FEATURE", "MODE"})
+
+    def test_python_env_scanner_ignores_comments_strings_and_writes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            script = repo / "main.py"
+            script.write_text(
+                "import os\n"
+                "# os.getenv('COMMENT_ONLY')\n"
+                "fixture = \"os.getenv('STRING_ONLY')\"\n"
+                "os.environ['WRITE_ONLY'] = 'configured'\n"
+                "os.environ.update({'UPDATE_ONLY': 'configured'})\n"
+                "token = os.getenv('API_TOKEN')\n"
+                "port = os.environ.get('PORT')\n",
+                encoding="utf-8")
+
+            env_names = DOCS_DRIFT.env_names_from_code(repo, ["main.py"])
+
+            self.assertEqual(
+                env_names,
+                {"API_TOKEN": ["main.py:6"], "PORT": ["main.py:7"]})
 
     def test_script_path_uses_cd_working_directory_across_lines(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -510,6 +600,35 @@ continues inside this code span`
 
             self.assertEqual(kinds.count("missing-script"), 1)
             self.assertEqual(kinds.count("missing-make-target"), 1)
+
+    def test_external_cd_and_dynamic_npm_prefix_skip_repository_checks(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            (repo / "package.json").write_text(
+                '{"scripts": {"root-only": "root"}}\n', encoding="utf-8")
+            (repo / "Makefile").write_text("root-only:\n", encoding="utf-8")
+            (repo / "packages" / "web").mkdir(parents=True)
+            (repo / "packages" / "web" / "package.json").write_text(
+                '{"scripts": {"build": "build"}}\n', encoding="utf-8")
+            doc = repo / "README.md"
+            doc.write_text(
+                "```sh\n"
+                "cd /tmp\n"
+                "npm run missing\n"
+                "make missing\n"
+                'npm --prefix "$WORK_DIR" run build\n'
+                "```\n", encoding="utf-8")
+
+            result = DOCS_DRIFT.build(repo, [
+                "package.json", "Makefile", "packages/web/package.json", "README.md",
+            ])
+
+            self.assertNotIn(
+                "missing-script",
+                {finding["kind"] for finding in result["findings"]})
+            self.assertNotIn(
+                "missing-make-target",
+                {finding["kind"] for finding in result["findings"]})
 
     def test_quoted_cd_path_with_separator_is_tracked(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1080,10 +1199,38 @@ npm run build
             docs = repo / "docs"
             docs.mkdir()
             doc = docs / "commands.md"
-            doc.write_text("```sh\nnpm -w web run build\n```\n", encoding="utf-8")
+            doc.write_text(
+                "```sh\nnpm -w packages/web run build\n```\n",
+                encoding="utf-8")
 
             result = DOCS_DRIFT.build(
                 repo, ["package.json", "packages/web/package.json", "docs/commands.md"])
+
+            self.assertNotIn(
+                "missing-script",
+                {finding["kind"] for finding in result["findings"]})
+
+    def test_npm_workspace_name_wins_over_another_package_basename(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            api = repo / "packages" / "api"
+            web = repo / "packages" / "web"
+            api.mkdir(parents=True)
+            web.mkdir(parents=True)
+            (repo / "package.json").write_text('{}\n', encoding="utf-8")
+            (api / "package.json").write_text(
+                '{"name": "web", "scripts": {"build": "build"}}\n',
+                encoding="utf-8")
+            (web / "package.json").write_text(
+                '{"name": "@acme/site", "scripts": {"test": "test"}}\n',
+                encoding="utf-8")
+            (repo / "README.md").write_text(
+                "```sh\nnpm --workspace web run build\n```\n", encoding="utf-8")
+
+            result = DOCS_DRIFT.build(repo, [
+                "package.json", "packages/api/package.json",
+                "packages/web/package.json", "README.md",
+            ])
 
             self.assertNotIn(
                 "missing-script",
@@ -1167,6 +1314,31 @@ npm run build
             self.assertEqual(len(missing), 1)
             self.assertIn("every applicable package.json", missing[0]["detail"])
 
+    def test_workspace_globs_do_not_match_nested_packages_unless_requested(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            web = repo / "packages" / "web"
+            nested = web / "examples" / "demo"
+            nested.mkdir(parents=True)
+            (repo / "package.json").write_text(
+                '{"workspaces": {"packages": ["packages/**", "!packages/*/examples/**"]}}\n',
+                encoding="utf-8")
+            (web / "package.json").write_text(
+                '{"scripts": {"build": "build"}}\n', encoding="utf-8")
+            (nested / "package.json").write_text(
+                '{"scripts": {"test": "test"}}\n', encoding="utf-8")
+            (repo / "README.md").write_text(
+                "```sh\nnpm --workspaces run build\n```\n", encoding="utf-8")
+
+            result = DOCS_DRIFT.build(repo, [
+                "package.json", "packages/web/package.json",
+                "packages/web/examples/demo/package.json", "README.md",
+            ])
+
+            self.assertNotIn(
+                "missing-script",
+                {finding["kind"] for finding in result["findings"]})
+
     def test_npm_workspaces_skips_only_when_workspace_selection_is_unknown(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
@@ -1216,6 +1388,42 @@ npm run build
             self.assertEqual(
                 DOCS_DRIFT.strip_shell_comment("make build#literal"),
                 "make build#literal")
+
+    def test_command_scanners_only_check_executables_and_support_wrappers_and_pipelines(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            (repo / "package.json").write_text(
+                '{"scripts": {"build": "build"}}\n', encoding="utf-8")
+            (repo / "Makefile").write_text("build:\n", encoding="utf-8")
+            scripts = repo / "scripts"
+            scripts.mkdir()
+            (scripts / "existing.py").write_text("print('ok')\n", encoding="utf-8")
+            doc = repo / "README.md"
+            doc.write_text(
+                "```sh\n"
+                "echo npm run missing\n"
+                "echo make missing\n"
+                "echo python scripts/missing.py\n"
+                "BUILD_MODE=release npm run build\n"
+                "printf command | env BUILD_MODE=release npm run build\n"
+                "printf command | make build\n"
+                "python scripts/existing.py\n"
+                "echo python scripts/missing.py | cat\n"
+                "```\n", encoding="utf-8")
+
+            result = DOCS_DRIFT.build(repo, [
+                "package.json", "Makefile", "scripts/existing.py", "README.md",
+            ])
+
+            self.assertNotIn(
+                "missing-script",
+                {finding["kind"] for finding in result["findings"]})
+            self.assertNotIn(
+                "missing-make-target",
+                {finding["kind"] for finding in result["findings"]})
+            self.assertNotIn(
+                "missing-script-file",
+                {finding["kind"] for finding in result["findings"]})
 
     def test_npm_multi_workspace_flags_script_missing_from_one_workspace(self):
         with tempfile.TemporaryDirectory() as temp_dir:

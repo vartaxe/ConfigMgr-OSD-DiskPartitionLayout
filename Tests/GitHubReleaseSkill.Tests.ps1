@@ -35,7 +35,10 @@ Describe 'GitHub release tag selection' {
         $noTagSection | Should -Match 'propose `1\.0\.0`'
         $noTagSection | Should -Match 'release-metadata and automation discovery in Step 3d'
         $noTagSection | Should -Match 'wait for the owner''s\s+confirmation'
+        $noTagSection | Should -Match 'empty Git tree'
         $noTagSection | Should -Not -Match 'go straight to Step 5'
+        $script:SkillContent | Should -Match 'git hash-object -t tree --stdin'
+        $script:SkillContent | Should -Match 'git log HEAD --oneline --no-merges'
 
         $stepFour = [regex]::Match(
             $script:SkillContent,
@@ -48,5 +51,22 @@ Describe 'GitHub release tag selection' {
             '(?s)### Step 5 - Create the release branch.*?(?=\r?\n```bash)'
         ).Value
         $stepFive | Should -Match 'Only after the owner has explicitly confirmed'
+
+        $stepSix = [regex]::Match(
+            $script:SkillContent,
+            '(?s)### Step 6 - Update release metadata and CHANGELOG\.md.*?(?=\r?\n---)'
+        ).Value
+        $stepSix | Should -Match 'Defer checksum regeneration and checksum validation'
+        $stepSix | Should -Match 'all other maintained files have their final contents'
+
+        $stepSeven = [regex]::Match(
+            $script:SkillContent,
+            '(?s)### Step 7 - Validate, commit and push.*?(?=\r?\n```bash)'
+        ).Value
+        $stepSeven | Should -Match 'regenerate checksums last'
+        $stepSeven | Should -Match 'before the changelog is written'
+
+        $script:SkillContent | Should -Not -Match 'Steps 1 - 4 are \*\*read-only reconnaissance\*\*'
+        $script:SkillContent | Should -Match 'can change the\s+working tree and local refs'
     }
 }

@@ -94,7 +94,7 @@ Default to `1.0.0` regardless of what's in the diff. Inform the user.
 | Situation | Recommendation |
 |---|---|
 | Only internal/private symbols changed | PATCH |
-| Type annotation added to previously untyped function | PATCH (non-breaking) |
+| Type annotation added to a previously untyped function | PATCH only when compatibility is verified; otherwise classify the actual impact, including MAJOR when callers are rejected |
 | Changing default value of optional parameter | Treat as MAJOR if callers might rely on old default |
 | Adding a new config option inside an optional block | MINOR only if existing users can omit it and retain compatible behavior (for example, a safe default); MAJOR if omission breaks a consumer |
 | Reverting a previous commit entirely | Follow what the net diff shows, not the revert message |
