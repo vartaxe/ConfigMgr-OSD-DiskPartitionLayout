@@ -211,9 +211,12 @@ in Step 6.
 Inspect the repository's release instructions, workflows, and package metadata.
 Identify every version source that must stay in sync (for example module manifests,
 package metadata, generated version files, or checksum manifests), the repository's
-required validation commands, and whether publishing is triggered by a pushed tag or
-requires a manual GitHub Release. In a monorepo, determine which package the user
-intends to release; do not assume the repository has one release unit.
+required validation commands, any required versioned release-note section (for example
+`## vX.Y.Z` in `RELEASE-NOTES.md`), and whether publishing is triggered by a pushed
+tag or requires a manual GitHub Release. For automated releases, also identify the
+exact-tag validation, downloadable-artifact verification, and approval gates required
+before promotion. In a monorepo, determine which package the user intends to release;
+do not assume the repository has one release unit.
 
 Do not treat `CHANGELOG.md` as the only release artifact. Follow the repository's
 documented process to update the relevant version sources and regenerate checksums
@@ -265,9 +268,11 @@ git push -u origin release/vX.Y.Z
 
 ### Step 6 - Update release metadata and CHANGELOG.md
 
-Update the version metadata and checksum files identified in Step 3d using the
-repository's release conventions. Run the repository's documented version/checksum
-validation before proceeding; do not stage unrelated generated or local files.
+Update the version metadata, project-specific release notes, and checksum files
+identified in Step 3d using the repository's release conventions. If the project
+requires an exact version heading in a release-notes file, add it. Run the repository's
+documented version/checksum validation before proceeding; do not stage unrelated
+generated or local files.
 
 Read the existing `CHANGELOG.md` (or create it if absent). Follow the
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format strictly.
@@ -337,7 +342,10 @@ git push origin release/vX.Y.Z
 ```
 
 Run the repository's documented test/build/release-validation commands before
-committing. Confirm the push succeeded before moving on.
+committing, including validation against the proposed version/tag when supported.
+After a tag-driven workflow runs, follow the project release process to validate the
+tagged revision and downloaded artifact (including file-set and checksum checks) before
+promotion. Confirm the push succeeded before moving on.
 
 ---
 
@@ -425,8 +433,9 @@ Tell the user:
 >
 > After the PR is reviewed and merged, follow this repository's release workflow.
 > If a pushed tag triggers publishing, create the documented tag on the merge commit
-> and verify that workflow completed successfully. If publishing is manual, create a
-> GitHub Release only when the repository's process calls for it. Avoid publishing
+> and verify the workflow, tagged revision, and downloaded artifact using this
+> repository's release checks before any promotion. Obtain the required maintainer
+> approval. If publishing is manual, follow the repository's process. Avoid publishing
 > twice when tag automation already created the release.
 
 ---
