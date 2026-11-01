@@ -1,5 +1,6 @@
 @echo off
 setlocal DisableDelayedExpansion
+set "_exitCodeMyTool=0"
 REM myTool
 ::  A standalone command-line tool template with argument parsing.
 ::
@@ -79,17 +80,22 @@ if /i "%_parOneMyTool%"=="--verbose" (
 
 :: Create temp directory for intermediate files.
 call :_makeTempDirMyTool
-if errorlevel 1 goto _removeBatchVariablesMyTool
+if errorlevel 1 (
+    set "_exitCodeMyTool=1"
+    goto _removeBatchVariablesMyTool
+)
 
 :: -----------------------------------------------------------------------
 :: Validate required input and start execution.
 :: -----------------------------------------------------------------------
 if "%_checkParOneMyTool%"=="--" (
     echo ERROR: No input specified. Run "%_scriptNameMyTool% /?" for usage. 1>&2
+    set "_exitCodeMyTool=1"
     goto _removeBatchVariablesMyTool
 )
 
 call :_startMyTool
+set "_exitCodeMyTool=%errorlevel%"
 goto _removeBatchVariablesMyTool
 
 :: ========================================================================
@@ -105,11 +111,11 @@ goto _removeBatchVariablesMyTool
     REM Validate input file exists.
     if NOT EXIST "%_parOneMyTool%" (
         echo ERROR: Input file not found: "%_parOneMyTool%" 1>&2
-        goto :eof
+        exit /b 1
     )
 
     call :_runMyTool
-goto :eof
+exit /b %errorlevel%
 
 :_runMyTool
     REM ===================================================================
@@ -183,7 +189,16 @@ goto :eof
     set _checkParThreeMyTool=
     REM Append new variables above this line.
 
-    if "%_tmpDirCreatedMyTool%"=="1" if EXIST "%_tmpDirMyTool%" rmdir /S /Q "%_tmpDirMyTool%" >nul 2>nul
+    if "%_tmpDirCreatedMyTool%"=="1" if EXIST "%_tmpDirMyTool%" (
+        rmdir /S /Q "%_tmpDirMyTool%" >nul 2>nul
+        if errorlevel 1 (
+            echo ERROR: Could not remove temporary directory: "%_tmpDirMyTool%" 1>&2
+            if "%_exitCodeMyTool%"=="0" set "_exitCodeMyTool=1"
+        ) else if EXIST "%_tmpDirMyTool%" (
+            echo ERROR: Could not remove temporary directory: "%_tmpDirMyTool%" 1>&2
+            if "%_exitCodeMyTool%"=="0" set "_exitCodeMyTool=1"
+        )
+    )
     set _tmpDirMyTool=
     set _tmpDirCreatedMyTool=
-    exit /b
+    exit /b %_exitCodeMyTool%

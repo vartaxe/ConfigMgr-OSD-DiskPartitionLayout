@@ -63,9 +63,13 @@ ENV_CODE_EXTS = CODE_EXTS | {".ps1", ".psm1", ".psd1"}
 
 FENCE = re.compile(r"^```")
 # Commands worth checking. Anything else in a fenced block is left alone.
-CMD_NPM = re.compile(r"\b(?:npm|pnpm|yarn|bun)\s+run\s+([A-Za-z0-9:_.-]+)")
+CMD_NPM = re.compile(
+    r"\b(?P<manager>npm|pnpm|yarn|bun)\b(?P<options>(?:\s+[^\s;&|]+)*)"
+    r"\s+run\s+(?P<script>[A-Za-z0-9:_.-]+)")
 CMD_MAKE = re.compile(r"\bmake\s+([A-Za-z0-9_.-]+)")
 CMD_SCRIPT = re.compile(r"(?:^|\s)(\./[A-Za-z0-9_./-]+|(?:python3?|node|bash|sh|ruby)\s+([A-Za-z0-9_./-]+\.[A-Za-z0-9]+))")
+SHELL_SEPARATOR = re.compile(r"\s*(?:&&|\|\||;)\s*")
+CD_COMMAND = re.compile(r"^(?:cd|pushd)\s+(['\"]?)([^'\"]+?)\1\s*$")
 
 MD_LINK = re.compile(r"!?\[[^\]]*\]\(([^)\s]+)")
 BACKTICK = re.compile(r"`([^`\n]+)`")
@@ -160,8 +164,9 @@ def available_commands(repo: Path, files: list[str]) -> tuple[dict[str, set[str]
                 data = json.loads(read(repo / rel))
             except ValueError:
                 continue
+            npm.setdefault(prefix, set())
             if isinstance(data.get("scripts"), dict):
-                npm.setdefault(prefix, set()).update(data["scripts"].keys())
+                npm[prefix].update(data["scripts"].keys())
         elif base == "Makefile":
             targets = re.findall(r"^([A-Za-z0-9][A-Za-z0-9_.-]*):(?!=)", read(repo / rel), re.M)
             make.update(targets)
@@ -170,15 +175,79 @@ def available_commands(repo: Path, files: list[str]) -> tuple[dict[str, set[str]
 
 def fenced_blocks(text: str) -> list[tuple[int, str]]:
     """Yield (line_number, line) for lines inside fenced code blocks."""
-    out: list[tuple[int, str]] = []
-    inside = False
+    return [line for group in fenced_block_groups(text) for line in group]
+
+
+def fenced_block_groups(text: str) -> list[list[tuple[int, str]]]:
+    """Return fenced code lines grouped so shell state does not leak between blocks."""
+    groups: list[list[tuple[int, str]]] = []
+    current: list[tuple[int, str]] | None = None
     for i, line in enumerate(text.splitlines(), start=1):
         if FENCE.match(line.strip()):
-            inside = not inside
+            if current is None:
+                current = []
+                groups.append(current)
+            else:
+                current = None
+        elif current is not None:
+            current.append((i, line))
+    return groups
+
+
+def directory_from(repo: Path, current: Path, target: str) -> Path:
+    """Resolve a documented cd/prefix directory without leaving the repository."""
+    target_path = Path(target)
+    candidate = target_path if target_path.is_absolute() else repo / current / target_path
+    try:
+        return candidate.resolve().relative_to(repo.resolve())
+    except ValueError:
+        return current
+
+
+def npm_package_scripts(npm: dict[str, set[str]], cwd: Path) -> set[str]:
+    """Select scripts from the closest package.json that contains the invocation cwd."""
+    applicable = []
+    for directory, scripts in npm.items():
+        package_dir = Path(directory)
+        if cwd == package_dir or package_dir in cwd.parents:
+            applicable.append((len(package_dir.parts), scripts))
+    return max(applicable, key=lambda item: item[0])[1] if applicable else set()
+
+
+def documentation_npm_cwd(doc: str, npm: dict[str, set[str]]) -> Path:
+    """Use a containing package directory for package-local documentation."""
+    doc_dir = Path(doc).parent
+    applicable = [
+        Path(directory) for directory in npm
+        if doc_dir == Path(directory) or Path(directory) in doc_dir.parents
+    ]
+    return max(applicable, key=lambda directory: len(directory.parts)) if applicable else Path(".")
+
+
+def npm_commands_in_line(repo: Path, npm: dict[str, set[str]], line: str,
+                         cwd: Path) -> tuple[Path, list[tuple[str, set[str]]]]:
+    """Track simple shell directory changes and resolve each npm command's package."""
+    commands = []
+    for segment in SHELL_SEPARATOR.split(line):
+        cd_match = CD_COMMAND.match(segment.strip())
+        if cd_match:
+            cwd = directory_from(repo, cwd, cd_match.group(2).strip())
             continue
-        if inside:
-            out.append((i, line))
-    return out
+        for match in CMD_NPM.finditer(segment):
+            options = match.group("options").split()
+            prefix = None
+            i = 0
+            while i < len(options):
+                option = options[i]
+                if option.startswith(("--prefix=", "--cwd=", "--dir=")):
+                    prefix = option.split("=", 1)[1]
+                elif option in {"--prefix", "--cwd", "--dir", "-C"} and i + 1 < len(options):
+                    prefix = options[i + 1]
+                    i += 1
+                i += 1
+            command_cwd = directory_from(repo, cwd, prefix) if prefix else cwd
+            commands.append((match.group("script"), npm_package_scripts(npm, command_cwd)))
+    return cwd, commands
 
 
 def markdown_lines_without_code(text: str) -> list[tuple[int, str]]:
@@ -342,31 +411,37 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
             continue
 
         # 1. commands
-        for lineno, line in fenced_blocks(text):
-            for script in set(CMD_NPM.findall(line)):
-                if not npm_scripts:
-                    continue
-                if script not in all_npm:
-                    near = ", ".join(sorted(s for s in all_npm if s.startswith(script.split(":")[0]))[:4])
-                    hint = f" Closest existing: {near}." if near else ""
-                    add("missing-script", "high", doc, lineno,
-                        f"documents `{script}`, which is not a script in any package.json.{hint}",
-                        source="package.json")
-            for target in set(CMD_MAKE.findall(line)):
-                if make_targets and target not in make_targets and target != "-j":
-                    add("missing-make-target", "high", doc, lineno,
-                        f"documents `make {target}`, which is not a target in the Makefile.",
-                        source="Makefile")
-            for whole, inner in CMD_SCRIPT.findall(line):
-                candidate = inner or whole
-                if not candidate or PLACEHOLDER.search(candidate):
-                    continue
-                if candidate.endswith("/") or any(part in SKIP_DIRS
-                                                  for part in Path(candidate).parts):
-                    continue
-                if candidate not in file_set and not documented_script_exists(repo, doc, candidate):
-                    add("missing-script-file", "high", doc, lineno,
-                        f"documents running `{candidate}`, which does not exist.")
+        for block in fenced_block_groups(text):
+            npm_cwd = documentation_npm_cwd(doc, npm_scripts)
+            for lineno, line in block:
+                npm_cwd, npm_calls = npm_commands_in_line(repo, npm_scripts, line, npm_cwd)
+                for script, applicable_scripts in set(
+                        (script, frozenset(scripts)) for script, scripts in npm_calls):
+                    if not npm_scripts:
+                        continue
+                    if script not in applicable_scripts:
+                        near = ", ".join(sorted(
+                            s for s in applicable_scripts
+                            if s.startswith(script.split(":")[0]))[:4])
+                        hint = f" Closest existing: {near}." if near else ""
+                        add("missing-script", "high", doc, lineno,
+                            f"documents `{script}`, which is not a script in the applicable "
+                            f"package.json.{hint}", source="package.json")
+                for target in set(CMD_MAKE.findall(line)):
+                    if make_targets and target not in make_targets and target != "-j":
+                        add("missing-make-target", "high", doc, lineno,
+                            f"documents `make {target}`, which is not a target in the Makefile.",
+                            source="Makefile")
+                for whole, inner in CMD_SCRIPT.findall(line):
+                    candidate = inner or whole
+                    if not candidate or PLACEHOLDER.search(candidate):
+                        continue
+                    if candidate.endswith("/") or any(part in SKIP_DIRS
+                                                      for part in Path(candidate).parts):
+                        continue
+                    if candidate not in file_set and not documented_script_exists(repo, doc, candidate):
+                        add("missing-script-file", "high", doc, lineno,
+                            f"documents running `{candidate}`, which does not exist.")
 
         # 2 and 3. links and backticked paths
         for i, line in markdown_lines_without_code(text):

@@ -80,15 +80,19 @@ goto _removeBatchVariablesMyLib
     if not defined _argOneMyLib goto :eof
     setlocal EnableDelayedExpansion
     set "_valMyLib=!%_argOneMyLib%!"
-    REM Trim leading spaces.
-    for /f "tokens=* delims= " %%a in ("!_valMyLib!") do set "_valMyLib=%%a"
+    REM Trim leading spaces without FOR /F's default semicolon end-of-line handling.
+:_trimLeadingMyLib
+    if not "!_valMyLib:~0,1!"==" " goto _trimTrailingMyLib
+    set "_valMyLib=!_valMyLib:~1!"
+    goto _trimLeadingMyLib
     REM Trim trailing spaces.
-    :_trimTrailingMyLib
+:_trimTrailingMyLib
     if "!_valMyLib:~-1!"==" " (
         set "_valMyLib=!_valMyLib:~0,-1!"
         goto _trimTrailingMyLib
     )
-    endlocal & set "%_argOneMyLib%=%_valMyLib%"
+    setlocal DisableDelayedExpansion
+    endlocal & endlocal & set "%_argOneMyLib%=%_valMyLib%"
 goto :eof
 
 :_toLowerMyLib
@@ -171,10 +175,35 @@ goto :eof
     if not defined _argOneMyLib goto :eof
     if not defined _argTwoMyLib goto :eof
     setlocal EnableDelayedExpansion
+    set "_widthMyLib=%_argTwoMyLib%"
+    set "_invalidWidthMyLib="
+    for /f "delims=0123456789" %%a in ("!_widthMyLib!") do set "_invalidWidthMyLib=1"
+    if defined _invalidWidthMyLib goto _padRightInvalidWidthMyLib
+    set "_widthDigitsMyLib="
+    for /f "tokens=* delims=0" %%a in ("!_widthMyLib!") do set "_widthDigitsMyLib=%%a"
+    if not defined _widthDigitsMyLib set "_widthDigitsMyLib=0"
+    if not "!_widthDigitsMyLib:~4,1!"=="" goto _padRightInvalidWidthMyLib
+    set /a _widthMyLib=_widthDigitsMyLib
+    if !_widthMyLib! GTR 8000 goto _padRightInvalidWidthMyLib
+    if !_widthMyLib! EQU 0 (
+        echo(
+        endlocal
+        goto :eof
+    )
     set "_valMyLib=%_argOneMyLib%"
-    set "_padMyLib=%_valMyLib%                                                  "
-    set "_padMyLib=!_padMyLib:~0,%_argTwoMyLib%!"
-    echo !_padMyLib!
+    set "_padMyLib=!_valMyLib!"
+:_padRightAddSpacesMyLib
+    if not "!_padMyLib:~%_widthMyLib%,1!"=="" goto _padRightFinishMyLib
+    set "_padMyLib=!_padMyLib!                                                  "
+    goto _padRightAddSpacesMyLib
+:_padRightFinishMyLib
+    set "_padMyLib=!_padMyLib:~0,%_widthMyLib%!"
+    echo(!_padMyLib!
+    endlocal
+goto :eof
+
+:_padRightInvalidWidthMyLib
+    echo ERROR: padRight width must be an integer from 0 to 8000.
     endlocal
 goto :eof
 

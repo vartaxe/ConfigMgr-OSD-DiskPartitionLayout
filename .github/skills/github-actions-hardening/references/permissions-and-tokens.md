@@ -33,7 +33,8 @@ jobs:
 ```
 
 Common scopes: `contents`, `pull-requests`, `issues`, `actions`, `packages`, `id-token`,
-`deployments`, `checks`, `statuses`. Each is `read`, `write`, or `none`.
+`deployments`, `checks`, `statuses`. For scopes other than `id-token`, use `read`, `write`, or
+`none`. The `id-token` scope supports only `write` or `none`; it does not support `read`.
 
 ## Findings to Flag
 

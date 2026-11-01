@@ -85,7 +85,7 @@ git fetch --tags
 
 # Find the latest version tag, sorted semantically
 # --sort=-version:refname handles 1.10.0 > 1.9.0 correctly (unlike alphabetical)
-PREV_TAG=$(git tag --sort=-version:refname | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+PREV_TAG=$(git tag --sort=-version:refname | grep -E '^[vV]?[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
 echo "Latest tag: $PREV_TAG"
 ```
 
@@ -96,7 +96,7 @@ git fetch --tags
 # Find the latest version tag, sorted semantically
 # --sort=-version:refname handles 1.10.0 > 1.9.0 correctly (unlike alphabetical)
 $prevTag = git tag --sort='-version:refname' | `
-  Select-String '^[vV]?\d+\.\d+\.\d+' | `
+  Select-String '^[vV]?\d+\.\d+\.\d+$' | `
   Select-Object -First 1 -ExpandProperty Line
 
 if ($prevTag) {

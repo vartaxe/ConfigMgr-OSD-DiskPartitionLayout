@@ -118,6 +118,54 @@ PowerShell cast: `[Security.Principal.WindowsIdentity]::GetCurrent(`.
             self.assertIn("missing-script", kinds)
             self.assertIn("missing-make-target", kinds)
 
+    def test_npm_scripts_are_checked_for_invocation_working_directory(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            (repo / "packages" / "web").mkdir(parents=True)
+            (repo / "package.json").write_text(
+                '{"scripts": {"test": "test"}}\n', encoding="utf-8")
+            (repo / "packages" / "web" / "package.json").write_text(
+                '{"scripts": {"build": "build"}}\n', encoding="utf-8")
+            package_doc = repo / "packages" / "web" / "README.md"
+            package_doc.write_text("```sh\nnpm run build\n```\n", encoding="utf-8")
+            docs = repo / "docs"
+            docs.mkdir()
+            doc = docs / "commands.md"
+            doc.write_text(
+                """```sh
+npm run test
+```
+
+```sh
+cd packages/web
+npm run build
+```
+
+```sh
+npm --prefix packages/web run build
+```
+
+```sh
+npm run build
+```
+""",
+                encoding="utf-8")
+
+            result = DOCS_DRIFT.build(
+                repo, [
+                    "package.json",
+                    "packages/web/package.json",
+                    "packages/web/README.md",
+                    "docs/commands.md",
+                ])
+            missing_scripts = [
+                finding for finding in result["findings"]
+                if finding["kind"] == "missing-script"
+            ]
+            self.assertEqual(len(missing_scripts), 1)
+            self.assertIn("build", missing_scripts[0]["detail"])
+            self.assertEqual(missing_scripts[0]["line"], 15)
+
 
 if __name__ == "__main__":
     unittest.main()

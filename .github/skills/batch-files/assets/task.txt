@@ -33,6 +33,7 @@ set "_helpLinesMyTask=20"
 
 :: Config variables.
 set "_dryRunMyTask=0"
+set "_taskResultMyTask=0"
 set "_logFileMyTask=%TEMP%\%~n0.log"
 
 :: Define paths.
@@ -75,7 +76,10 @@ set "_savedDirMyTask=%CD%"
 
 :: Create temp directory for intermediate files.
 call :_makeTempDirMyTask
-if errorlevel 1 goto _removeBatchVariablesMyTask
+if errorlevel 1 (
+    set "_taskResultMyTask=1"
+    goto _removeBatchVariablesMyTask
+)
 
 :: -----------------------------------------------------------------------
 :: Log start and begin execution.
@@ -85,6 +89,7 @@ call :_logMyTask "Task started: %_scriptNameMyTask%"
 call :_logMyTask "=========================================="
 
 call :_runMyTask
+set "_taskResultMyTask=%ERRORLEVEL%"
 
 call :_logMyTask "Task finished: %_scriptNameMyTask%"
 goto _removeBatchVariablesMyTask
@@ -107,7 +112,7 @@ goto _removeBatchVariablesMyTask
     if NOT "%_checkParOneMyTask%"=="--" (
         if NOT EXIST "%_parOneMyTask%" (
             call :_logTargetMyTask "ERROR: Target not found: "
-            goto :eof
+            exit /b 1
         )
         call :_logTargetMyTask "Processing target: "
         REM Add task operations here.
@@ -132,10 +137,7 @@ goto :eof
         set "_logTextMyTask=%~1"
     )
     setlocal EnableDelayedExpansion
-    for /f "tokens=2 delims==" %%a in ('wmic os get localdatetime /value') do (
-        set "_dtMyTask=%%a"
-    )
-    set "_tsMyTask=!_dtMyTask:~0,4!-!_dtMyTask:~4,2!-!_dtMyTask:~6,2! !_dtMyTask:~8,2!:!_dtMyTask:~10,2!:!_dtMyTask:~12,2!"
+    set "_tsMyTask=%DATE% %TIME%"
     echo [!_tsMyTask!] !_logTextMyTask!
     echo [!_tsMyTask!] !_logTextMyTask! >>"%_logFileMyTask%"
     endlocal
@@ -211,4 +213,4 @@ goto :eof
         cd /D "%_savedDirMyTask%"
         set _savedDirMyTask=
     )
-    exit /b
+    endlocal & exit /b %_taskResultMyTask%

@@ -66,7 +66,7 @@
 
 **OOBE** — Setup Windows 11 without internet/Microsoft account. Win11 25H2: `start ms-cxh:localonly` from Shift+F10 CMD prompt during setup. Earlier Win11: `OOBE\BYPASSNRO` (restarts with "I don't have Internet" option). Manual method: add `HKLM\...\OOBE BypassNRO=dword:1` via regedit. Custom user folder name (25H2): Shift+F10 during setup, `cd oobe`, run `SetDefaultUserFolder.cmd`, enter name (16 char max).
 
-**Recovery Environment** — WinRE/Safe Mode/WinPE. Safe mode: hold Shift + Power > Restart, then Troubleshoot > Startup Settings > F4 (safe) or F5 (safe+networking). WinRE: repeatedly power-cycle (hold power 10s, 3 times). WinPE: boot from USB, runs wpeinit automatically. WinPE drive detection script: loop through drive letters A-Z checking for existence of a known file. Create admin account from recovery: rename utilman.exe, copy cmd.exe over it, reboot, click Ease of Access at login to get CMD, `NET user demo-user password1 /add` then `NET localgroup administrators demo-user /add`.
+**Recovery Environment** ? If you cannot sign in, use authorized Microsoft-supported account recovery or password reset options, or contact your organization's IT support.
 
 **64-Bit Detection** — Detect 64-bit OS: `IF %PROCESSOR_ARCHITECTURE%==x86 (IF NOT DEFINED PROCESSOR_ARCHITEW6432 Set _os=32)`. Detect 32-bit process on 64-bit: check if `PROCESSOR_ARCHITEW6432` is defined. System folders: 32-bit session sees System32 as 32-bit and SysNative as 64-bit; 64-bit session sees System32 as 64-bit and SysWOW64 as 32-bit. Relaunch as 64-bit: `%SystemRoot%\Sysnative\cmd.exe /C "%~f0" %*`. Run 32-bit: `%SystemRoot%\SysWoW64\cmd.exe`. Environment: `%ProgramFiles%` = 64-bit programs, `%ProgramFiles(x86)%` = 32-bit programs.
 

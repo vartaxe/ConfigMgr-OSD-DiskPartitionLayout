@@ -55,7 +55,13 @@ change than to silently break consumers.
 
 ## What counts as a PATCH bump
 
-- Fixing a bug where behavior was incorrect relative to documented intent
+A PATCH release must preserve compatibility for existing consumers: it must not
+require consumer code changes or break previously working consumer usage. If
+correcting a bug requires an incompatible consumer-facing change, classify it as
+MAJOR, not PATCH.
+
+- Fixing a bug where behavior was incorrect relative to documented intent, when
+  the correction preserves compatibility for existing consumers
 - Improving performance without changing the public API
 - Internal refactoring with no external observable difference
 - Documentation updates
