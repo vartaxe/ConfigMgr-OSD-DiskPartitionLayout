@@ -2,7 +2,9 @@ BeforeAll {
     $script:LibraryPath = Join-Path $PSScriptRoot '..\.github\skills\batch-files\assets\library.txt'
     $script:ExecutablePath = Join-Path $PSScriptRoot ("PadRight-library-{0}.cmd" -f [guid]::NewGuid().ToString('N'))
     $script:RunnerPath = Join-Path $PSScriptRoot ("PadRight-runner-{0}.cmd" -f [guid]::NewGuid().ToString('N'))
-    Copy-Item -LiteralPath $script:LibraryPath -Destination $script:ExecutablePath
+    $library = [IO.File]::ReadAllText($script:LibraryPath, [Text.Encoding]::UTF8)
+    $library = [regex]::Replace($library, "`r`n|`r|`n", "`r`n")
+    [IO.File]::WriteAllText($script:ExecutablePath, $library, [Text.Encoding]::ASCII)
 
     function Invoke-PadRight {
         param(
