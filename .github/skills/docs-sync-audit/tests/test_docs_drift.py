@@ -35,8 +35,10 @@ python .github/scripts/check.py
 ```
 
 PowerShell cast: `[Security.Principal.WindowsIdentity]::GetCurrent(`.
+PowerShell environment: `$env:COMPUTERNAME`.
 
 [Real broken link](missing.md)
+[Repo root link](/assets/file%20with%20spaces.md)
 """,
                 encoding="utf-8")
             assets = repo / "assets"
@@ -75,6 +77,7 @@ PowerShell cast: `[Security.Principal.WindowsIdentity]::GetCurrent(`.
             self.assertIn("missing.md", broken_links[0])
             self.assertNotIn("not-a-real-link.md", " ".join(broken_links))
             self.assertNotIn("Fake", " ".join(broken_links))
+            self.assertIn("COMPUTERNAME", DOCS_DRIFT.env_names_documented(repo, files))
 
             env_names = DOCS_DRIFT.env_names_from_code(repo, files)
             self.assertEqual(set(env_names), {"WINDIR", "SYSTEMDRIVE", "COMPUTERNAME"})
@@ -165,6 +168,23 @@ npm run build
             self.assertEqual(len(missing_scripts), 1)
             self.assertIn("build", missing_scripts[0]["detail"])
             self.assertEqual(missing_scripts[0]["line"], 15)
+
+    def test_tilde_fenced_commands_are_checked(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            (repo / "package.json").write_text(
+                '{"scripts": {"test": "test"}}\n', encoding="utf-8")
+            doc = repo / "README.md"
+            doc.write_text("~~~sh\nnpm run build\n~~~\n", encoding="utf-8")
+
+            result = DOCS_DRIFT.build(repo, ["package.json", "README.md"])
+            missing_scripts = [
+                finding for finding in result["findings"]
+                if finding["kind"] == "missing-script"
+            ]
+            self.assertEqual(len(missing_scripts), 1)
+            self.assertIn("build", missing_scripts[0]["detail"])
+            self.assertEqual(missing_scripts[0]["line"], 2)
 
 
 if __name__ == "__main__":

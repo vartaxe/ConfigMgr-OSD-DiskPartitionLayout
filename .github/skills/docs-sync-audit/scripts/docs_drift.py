@@ -61,7 +61,7 @@ CODE_EXTS = {
 }
 ENV_CODE_EXTS = CODE_EXTS | {".ps1", ".psm1", ".psd1"}
 
-FENCE = re.compile(r"^```")
+FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 # Commands worth checking. Anything else in a fenced block is left alone.
 CMD_NPM = re.compile(
     r"\b(?P<manager>npm|pnpm|yarn|bun)\b(?P<options>(?:\s+[^\s;&|]+)*)"
@@ -74,7 +74,7 @@ CD_COMMAND = re.compile(r"^(?:cd|pushd)\s+(['\"]?)([^'\"]+?)\1\s*$")
 MD_LINK = re.compile(r"!?\[[^\]]*\]\(([^)\s]+)")
 BACKTICK = re.compile(r"`([^`\n]+)`")
 INLINE_CODE = re.compile(r"(`+).*?\1")
-MARKDOWN_FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
+MARKDOWN_FENCE = FENCE
 FROM_IMPORT_SPEC = re.compile(
     r"^\s*from\s+([A-Za-z0-9_.]+)\s+import\s+([^#\n]+)", re.M)
 
@@ -93,6 +93,7 @@ ENV_IN_CODE = [
     re.compile(r"""Deno\.env\.get\(\s*['"]([A-Z][A-Z0-9_]*)['"]"""),
 ]
 ENV_NAME = re.compile(r"\b([A-Z][A-Z0-9_]{2,})\b")
+POWERSHELL_ENV = re.compile(r"(?i)\$env:([A-Za-z][A-Za-z0-9_]*)")
 
 # Import forms across the languages handled above. Four alternatives, so findall
 # returns tuples and the caller takes the first non-empty group.
@@ -182,13 +183,21 @@ def fenced_block_groups(text: str) -> list[list[tuple[int, str]]]:
     """Return fenced code lines grouped so shell state does not leak between blocks."""
     groups: list[list[tuple[int, str]]] = []
     current: list[tuple[int, str]] | None = None
+    fence_char = ""
+    fence_length = 0
     for i, line in enumerate(text.splitlines(), start=1):
-        if FENCE.match(line.strip()):
-            if current is None:
-                current = []
-                groups.append(current)
-            else:
-                current = None
+        marker = FENCE.match(line)
+        if marker and current is None:
+            current = []
+            groups.append(current)
+            fence_char = marker.group(1)[0]
+            fence_length = len(marker.group(1))
+        elif (marker and current is not None
+              and marker.group(1)[0] == fence_char
+              and len(marker.group(1)) >= fence_length):
+            current = None
+            fence_char = ""
+            fence_length = 0
         elif current is not None:
             current.append((i, line))
     return groups
@@ -381,6 +390,8 @@ def env_names_documented(repo: Path, files: list[str]) -> dict[str, str]:
                         if "_" not in name:
                             continue
                         documented.setdefault(name, f"{rel}:{i}")
+                for name in POWERSHELL_ENV.findall(line):
+                    documented.setdefault(name.upper(), f"{rel}:{i}")
     return documented
 
 
@@ -448,11 +459,12 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
             for target in MD_LINK.findall(line):
                 local_target = target.split("#", 1)[0].split("?", 1)[0].strip()
                 t = unquote(local_target)
-                if not t or t.startswith(("http://", "https://", "mailto:", "#", "tel:", "data:")):
+                if not t or t.startswith(("//", "http://", "https://", "mailto:", "#", "tel:", "data:")):
                     continue
                 if PLACEHOLDER.search(t):
                     continue
-                if not (repo / Path(doc).parent / t).exists():
+                target_path = Path(t.lstrip("/")) if t.startswith("/") else Path(doc).parent / t
+                if not (repo / target_path).exists():
                     add("broken-link", "high", doc, i,
                         f"relative link `{t}` does not resolve.")
         for i, line in enumerate(text.splitlines(), start=1):
