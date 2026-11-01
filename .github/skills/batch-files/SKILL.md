@@ -430,9 +430,11 @@ command > NUL 2>&1          & REM Discard all output
 
 ### Standard Script Structure
 
+Keep delayed expansion disabled while forwarding `%*` and reading `%~1`/`%~2`; enabled delayed expansion can consume literal `!` in those arguments. If a later block needs delayed expansion for unrelated loop or counter state, enable it only after argument parsing and keep user-supplied values out of delayed-expansion reads.
+
 ```bat
 @echo off
-setlocal EnableDelayedExpansion
+setlocal DisableDelayedExpansion
 
 REM ============================================================
 REM  Script: example.bat
@@ -492,7 +494,7 @@ exit /b %ERRORLEVEL%
 5. **Return meaningful exit codes** — `exit /b 0` for success, non-zero for specific failures.
 6. **Use `%~dp0` for script-relative paths** — Ensures the script works regardless of the caller's working directory.
 7. **Prefer `ROBOCOPY` over `XCOPY`** — More reliable, supports retry, mirroring, and logging.
-8. **Use `EnableDelayedExpansion` when modifying variables inside loops or parenthesized blocks.**
+8. **Use `EnableDelayedExpansion` only where needed, after argument parsing; keep it disabled while reading or forwarding user-supplied arguments containing `!`.**
 9. **Write errors to stderr** — `echo ERROR: message 1>&2` keeps stdout clean for piping.
 10. **Use `REM` for comments** — `::` can cause issues inside `FOR` loop bodies.
 

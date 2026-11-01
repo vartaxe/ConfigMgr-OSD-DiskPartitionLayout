@@ -101,6 +101,7 @@ ENV_IN_CODE = [
     re.compile(r"""Deno\.env\.get\(\s*['"]([A-Z][A-Z0-9_]*)['"]"""),
 ]
 ENV_NAME = re.compile(r"\b([A-Z][A-Z0-9_]{2,})\b")
+ENV_SAMPLE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 POWERSHELL_ENV = re.compile(r"(?i)\$env:([A-Za-z_][A-Za-z0-9_]*)")
 
 # Import forms across the languages handled above. Four alternatives, so findall
@@ -249,9 +250,12 @@ def make_directory_from(repo: Path, current: Path, target: str) -> Path | None:
 
 
 def makefile_targets(repo: Path, rel: str) -> set[str]:
-    """Read target names from one Makefile inventory."""
-    return set(re.findall(
-        r"^([A-Za-z0-9][A-Za-z0-9_.-]*):(?!=)", read(repo / rel), re.M))
+    """Read static target names from one Makefile inventory."""
+    target_list = re.compile(
+        r"^([A-Za-z0-9][A-Za-z0-9_.-]*(?:[ \t]+[A-Za-z0-9][A-Za-z0-9_.-]*)*):(?!=)",
+        re.M)
+    return {target for match in target_list.finditer(read(repo / rel))
+            for target in match.group(1).split()}
 
 
 def npm_package_scripts(npm: dict[str, set[str]], cwd: Path) -> set[str]:
@@ -329,8 +333,8 @@ def shell_tokens(command: str) -> list[str]:
 def npm_commands_in_line(repo: Path, npm: dict[str, set[str]], line: str,
                          cwd: Path,
                          workspace_names: dict[str, set[str]] | None = None
-                         ) -> tuple[Path, list[tuple[str, set[str]]]]:
-    """Track shell directory changes and resolve each npm run to its package."""
+                         ) -> tuple[Path, list[tuple[str, list[set[str]], bool]]]:
+    """Track shell directory changes and retain each selected workspace inventory."""
     commands = []
     for segment in SHELL_SEPARATOR.split(line):
         cd_match = CD_COMMAND.match(segment.strip())
@@ -383,19 +387,22 @@ def npm_commands_in_line(repo: Path, npm: dict[str, set[str]], line: str,
                     i += 1
                 i += 1
             command_cwd = directory_from(repo, cwd, prefix) if prefix else cwd
+            if_present = "--if-present" in arguments
             if workspace_selectors:
                 selected_scripts = []
+                resolved = True
                 for selector in workspace_selectors:
                     scripts = npm_workspace_package_scripts(
                         repo, npm, workspace_names or {}, selector)
                     if scripts is None:
-                        selected_scripts = []
+                        resolved = False
                         break
                     selected_scripts.append(scripts)
-                if selected_scripts:
-                    commands.append((script, set().union(*selected_scripts)))
+                if resolved and selected_scripts:
+                    commands.append((script, selected_scripts, if_present))
             else:
-                commands.append((script, npm_package_scripts(npm, command_cwd)))
+                commands.append((
+                    script, [npm_package_scripts(npm, command_cwd)], if_present))
     return cwd, commands
 
 
@@ -417,9 +424,9 @@ def make_commands_in_line(
             arguments = tokens[make_index + 1:]
             make_cwd = cwd
             directory_resolved = True
+            required_operand_missing = False
             explicit_makefiles = []
             explicit_makefiles_requested = False
-            explicit_makefiles_resolved = True
             targets = []
             i = 0
             while i < len(arguments):
@@ -440,7 +447,8 @@ def make_commands_in_line(
                     option_name, value = "-j", option[2:].lstrip("=")
 
                 if option_name in {"-C", "--directory", "-f", "--file"}:
-                    if value is None and i + 1 < len(arguments):
+                    if (value is None and i + 1 < len(arguments)
+                            and not arguments[i + 1].startswith("-")):
                         i += 1
                         value = arguments[i]
                     if value:
@@ -452,12 +460,12 @@ def make_commands_in_line(
                                 make_cwd = resolved
                         else:
                             explicit_makefiles_requested = True
-                            explicit_makefiles_resolved = False
                             explicit_makefiles.append(value)
                     elif option_name in {"-C", "--directory"}:
                         directory_resolved = False
                     else:
                         explicit_makefiles_requested = True
+                        required_operand_missing = True
                 elif option_name in {"-j", "--jobs"}:
                     if value is None and i + 1 < len(arguments):
                         next_argument = arguments[i + 1]
@@ -469,11 +477,10 @@ def make_commands_in_line(
                     targets.append(option)
                 i += 1
 
-            if not directory_resolved:
+            if not directory_resolved or required_operand_missing:
                 continue
             inventory = None
-            if explicit_makefiles_requested and (
-                    not explicit_makefiles or not explicit_makefiles_resolved):
+            if explicit_makefiles_requested and not explicit_makefiles:
                 continue
             if explicit_makefiles:
                 resolved_makefiles = []
@@ -486,17 +493,11 @@ def make_commands_in_line(
                     except ValueError:
                         resolved_makefiles = []
                         break
-                    if files is not None and rel not in files:
+                    if not candidate.is_file() or (
+                            files is not None and rel not in files):
                         resolved_makefiles = []
                         break
-                    if files is None and Path(rel).name == "Makefile":
-                        targets_for_file = make.get(Path(rel).parent.as_posix())
-                        if targets_for_file is None:
-                            resolved_makefiles = []
-                            break
-                    else:
-                        targets_for_file = makefile_targets(repo, rel)
-                    resolved_makefiles.append(targets_for_file)
+                    resolved_makefiles.append(makefile_targets(repo, rel))
                 if resolved_makefiles:
                     inventory = set().union(*resolved_makefiles)
             else:
@@ -533,37 +534,51 @@ def markdown_lines_without_code(text: str) -> list[tuple[int, str]]:
         while segment_end < len(lines) and not fenced_lines[segment_end]:
             segment_end += 1
 
-        runs: list[tuple[int, int, int]] = []
-        runs_by_length: dict[int, list[int]] = {}
-        for line_index in range(segment_start, segment_end):
-            for match in BACKTICK_RUN.finditer(lines[line_index]):
-                run_index = len(runs)
-                run_length = len(match.group())
-                runs.append((line_index, match.start(), run_length))
-                runs_by_length.setdefault(run_length, []).append(run_index)
+        paragraph_start = segment_start
+        while paragraph_start < segment_end:
+            while (paragraph_start < segment_end
+                   and not lines[paragraph_start].strip()):
+                paragraph_start += 1
+            paragraph_end = paragraph_start
+            while (paragraph_end < segment_end
+                   and lines[paragraph_end].strip()):
+                paragraph_end += 1
 
-        matching_runs: dict[int, int] = {}
-        for run_indices in runs_by_length.values():
-            for opening, closing in zip(run_indices[::2], run_indices[1::2]):
-                matching_runs[opening] = closing
+            runs: list[tuple[int, int, int]] = []
+            for line_index in range(paragraph_start, paragraph_end):
+                line = lines[line_index]
+                for match in BACKTICK_RUN.finditer(line):
+                    slash_count = 0
+                    preceding = match.start() - 1
+                    while preceding >= 0 and line[preceding] == "\\":
+                        slash_count += 1
+                        preceding -= 1
+                    if slash_count % 2:
+                        continue
+                    runs.append((line_index, match.start(), len(match.group())))
 
-        run_index = 0
-        while run_index < len(runs):
-            closing_index = matching_runs.get(run_index)
-            if closing_index is None:
-                run_index += 1
-                continue
+            run_index = 0
+            while run_index < len(runs):
+                start_line, start_column, run_length = runs[run_index]
+                closing_index = next((
+                    index for index in range(run_index + 1, len(runs))
+                    if runs[index][2] == run_length
+                ), None)
+                if closing_index is None:
+                    run_index += 1
+                    continue
 
-            start_line, start_column, _ = runs[run_index]
-            end_line, end_column, end_length = runs[closing_index]
-            for line_index in range(start_line, end_line + 1):
-                start = start_column if line_index == start_line else 0
-                end = (
-                    end_column + end_length
-                    if line_index == end_line else len(cleaned_lines[line_index])
-                )
-                cleaned_lines[line_index][start:end] = [" "] * (end - start)
-            run_index = closing_index + 1
+                end_line, end_column, end_length = runs[closing_index]
+                for line_index in range(start_line, end_line + 1):
+                    start = start_column if line_index == start_line else 0
+                    end = (
+                        end_column + end_length
+                        if line_index == end_line else len(cleaned_lines[line_index])
+                    )
+                    cleaned_lines[line_index][start:end] = [" "] * (end - start)
+                run_index = closing_index + 1
+
+            paragraph_start = paragraph_end
 
         segment_start = segment_end
 
@@ -588,19 +603,46 @@ def documented_script_exists(repo: Path, doc: str, candidate: str) -> bool:
     return any(path.exists() for path in candidates)
 
 
+def script_directory_from(repo: Path, current: Path | None, target: str) -> Path | None:
+    """Resolve a literal shell directory without guessing at expansions or external paths."""
+    if (PLACEHOLDER.search(target) or target.startswith("~")
+            or any(char in target for char in "$`*?[]{}<>")):
+        return None
+
+    target_path = Path(target.replace("\\", "/"))
+    if not target_path.is_absolute() and current is None:
+        return None
+    candidate = target_path if target_path.is_absolute() else repo / current / target_path
+    try:
+        resolved = candidate.resolve()
+        relative = resolved.relative_to(repo.resolve())
+    except (OSError, ValueError):
+        return None
+    return relative if resolved.is_dir() else None
+
+
 def script_commands_in_line(
-        repo: Path, line: str, cwd: Path, directory_stack: list[Path],
+        repo: Path, line: str, cwd: Path | None, directory_stack: list[Path | None],
         explicit_directory_change: bool
-        ) -> tuple[Path, list[Path], bool, list[tuple[str, Path, bool]]]:
-    """Track shell directory changes and capture script paths at each invocation."""
+        ) -> tuple[Path | None, list[Path | None], bool,
+                   list[tuple[str, Path | None, bool]]]:
+    """Track supported shell directory changes and capture script paths at invocation."""
     commands = []
     for segment in SHELL_SEPARATOR.split(line):
         command = segment.strip()
         cd_match = CD_COMMAND.match(command)
         if cd_match:
+            target = cd_match.group(2).strip()
+            resolved = script_directory_from(repo, cwd, target)
             if command.startswith("pushd"):
-                directory_stack.append(cwd)
-            cwd = directory_from(repo, cwd, cd_match.group(2).strip())
+                if resolved is None:
+                    cwd = None
+                    directory_stack.clear()
+                else:
+                    directory_stack.append(cwd)
+                    cwd = resolved
+            else:
+                cwd = resolved
             explicit_directory_change = True
             continue
         if POPD_COMMAND.fullmatch(command):
@@ -626,12 +668,17 @@ def script_exists_at(repo: Path, cwd: Path, candidate: str) -> bool:
 def powershell_env_reads(text: str) -> list[tuple[str, int]]:
     """Return PowerShell environment references outside comments and assignments."""
     found: list[tuple[str, int]] = []
-    assignment_operator = re.compile(r"(?:\?\?=|\+=|-=|\*=|/=|%=|=|\+\+|--)")
     index = 0
     line = 1
     length = len(text)
 
     while index < length:
+        if text[index] == "`":
+            if index + 1 < length and text[index + 1] == "\n":
+                line += 1
+            index += 2
+            continue
+
         if text.startswith("<#", index):
             depth = 1
             index += 2
@@ -729,17 +776,7 @@ def powershell_env_reads(text: str) -> list[tuple[str, int]]:
             cursor = match.end()
             while cursor < length and text[cursor] in " \t":
                 cursor += 1
-            prefix_cursor = index
-            while prefix_cursor > 0 and text[prefix_cursor - 1] in " \t":
-                prefix_cursor -= 1
-            prefix_operator = text[prefix_cursor - 2:prefix_cursor]
-            prefix_boundary = (
-                prefix_cursor == 2
-                or (prefix_cursor >= 2
-                    and (text[prefix_cursor - 3].isspace()
-                         or text[prefix_cursor - 3] in ";{}(),|&=+-*/%!")))
-            prefix_assignment = prefix_operator in {"++", "--"} and prefix_boundary
-            if assignment_operator.match(text, cursor) is None and not prefix_assignment:
+            if not text.startswith("=", cursor):
                 found.append((match.group(1), line))
             index = match.end()
         else:
@@ -780,7 +817,8 @@ def unreferenced_modules(repo: Path, files: list[str]) -> set[str]:
     it under-reports rather than accusing live code of being dead.
     """
     code = [f for f in files
-            if Path(f).suffix in CODE_EXTS and not any(p in SKIP_DIRS for p in Path(f).parts)]
+            if Path(f).suffix in CODE_EXTS and Path(f).suffix.lower() != ".go"
+            and not any(p in SKIP_DIRS for p in Path(f).parts)]
     entrypoint = re.compile(
         r"(^|/)(server|main|index|app|cli|__init__|__main__|conftest|setup|wsgi|asgi)\.[A-Za-z]+$",
         re.I)
@@ -862,8 +900,10 @@ def env_names_documented(repo: Path, files: list[str]) -> dict[str, str]:
                 stripped = line.strip()
                 if not stripped or stripped.startswith("#") or "=" not in stripped:
                     continue
-                key = stripped.split("=", 1)[0].strip().lstrip("export ").strip()
-                if ENV_NAME.fullmatch(key or ""):
+                key = stripped.split("=", 1)[0].strip()
+                if key.startswith("export "):
+                    key = key[len("export "):].strip()
+                if ENV_SAMPLE_NAME.fullmatch(key or ""):
                     documented.setdefault(key, f"{rel}:{i}")
             else:
                 # In prose, a backticked all-caps token is weak evidence: `SKILL.md`
@@ -919,17 +959,21 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
             for lineno, line in block:
                 npm_cwd, npm_calls = npm_commands_in_line(
                     repo, npm_scripts, line, npm_cwd, workspace_names)
-                for script, applicable_scripts in set(
-                        (script, frozenset(scripts)) for script, scripts in npm_calls):
-                    if not npm_scripts:
+                unique_npm_calls = {
+                    (script, tuple(frozenset(scripts) for scripts in inventories), if_present)
+                    for script, inventories, if_present in npm_calls
+                }
+                for script, inventory_keys, if_present in unique_npm_calls:
+                    if not npm_scripts or if_present:
                         continue
-                    if script not in applicable_scripts:
+                    applicable_scripts = set().union(*inventory_keys)
+                    if any(script not in scripts for scripts in inventory_keys):
                         near = ", ".join(sorted(
                             s for s in applicable_scripts
                             if s.startswith(script.split(":")[0]))[:4])
                         hint = f" Closest existing: {near}." if near else ""
                         add("missing-script", "high", doc, lineno,
-                            f"documents `{script}`, which is not a script in the applicable "
+                            f"documents `{script}`, which is not a script in every applicable "
                             f"package.json.{hint}", source="package.json")
                 make_cwd, make_calls = make_commands_in_line(
                     repo, make_targets, line, make_cwd, file_set)
@@ -945,8 +989,8 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
                     repo, line, script_cwd, script_directory_stack,
                     explicit_script_directory_change)
                 for candidate, invocation_cwd, explicit_cwd in script_calls:
-                    if candidate.endswith("/") or any(part in SKIP_DIRS
-                                                      for part in Path(candidate).parts):
+                    if (invocation_cwd is None or candidate.endswith("/")
+                            or any(part in SKIP_DIRS for part in Path(candidate).parts)):
                         continue
                     exists = (
                         script_exists_at(repo, invocation_cwd, candidate)

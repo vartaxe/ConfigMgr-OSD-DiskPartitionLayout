@@ -6,6 +6,27 @@ BeforeAll {
     $library = [regex]::Replace($library, "`r`n|`r|`n", "`r`n")
     [IO.File]::WriteAllText($script:ExecutablePath, $library, [Text.Encoding]::ASCII)
 
+    function Invoke-BatchLibrary {
+        param(
+            [Parameter(Mandatory)]
+            [string]$Function,
+            [string[]]$Arguments = @()
+        )
+
+        $quotedArguments = @($Arguments | ForEach-Object { '"{0}"' -f $_ }) -join ' '
+        $call = 'call "{0}" {1} {2}' -f $script:ExecutablePath, $Function, $quotedArguments
+        [System.IO.File]::WriteAllLines(
+            $script:RunnerPath,
+            @('@echo off', 'setlocal DisableDelayedExpansion', $call, 'endlocal & exit /b %ERRORLEVEL%'),
+            [System.Text.Encoding]::ASCII
+        )
+        $output = @(& $env:ComSpec /d /c $script:RunnerPath 2>&1 | ForEach-Object { "$_" })
+        [pscustomobject]@{
+            Output = $output -join "`n"
+            ExitCode = $LASTEXITCODE
+        }
+    }
+
     function Invoke-PadRight {
         param(
             [Parameter(Mandatory)]
@@ -14,17 +35,7 @@ BeforeAll {
             [string]$Width
         )
 
-        $call = 'call "{0}" padRight "{1}" "{2}"' -f $script:ExecutablePath, $Value, $Width
-        [System.IO.File]::WriteAllLines(
-            $script:RunnerPath,
-            @('@echo off', 'setlocal DisableDelayedExpansion', $call, 'endlocal'),
-            [System.Text.Encoding]::ASCII
-        )
-        $output = @(& $env:ComSpec /d /c $script:RunnerPath 2>&1 | ForEach-Object { "$_" })
-        [pscustomobject]@{
-            Output = $output -join "`n"
-            ExitCode = $LASTEXITCODE
-        }
+        Invoke-BatchLibrary -Function 'padRight' -Arguments @($Value, $Width)
     }
 }
 
@@ -54,10 +65,18 @@ Describe 'Batch library padRight' {
     It 'rejects a semicolon-prefixed nonnumeric width' {
         $result = Invoke-PadRight -Value 'A' -Width ';bad'
         $result.Output | Should -BeExactly 'ERROR: padRight width must be an integer from 0 to 8000.'
+        $result.ExitCode | Should -Be 1
     }
 
     It 'rejects an exclamation-containing width without expanding it' {
         $result = Invoke-PadRight -Value 'A' -Width '1!MISSING!0'
         $result.Output | Should -BeExactly 'ERROR: padRight width must be an integer from 0 to 8000.'
+        $result.ExitCode | Should -Be 1
+    }
+
+    It 'returns a nonzero ERRORLEVEL for an unknown function' {
+        $result = Invoke-BatchLibrary -Function 'notAFunction'
+        $result.Output | Should -Match '^ERROR: Unknown function "notAFunction"\. Run ".+ /\?" for usage\.$'
+        $result.ExitCode | Should -Be 1
     }
 }

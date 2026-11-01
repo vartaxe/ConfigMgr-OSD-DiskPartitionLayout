@@ -83,9 +83,15 @@ is confirmed.
 # Fetch all tags from remote to ensure local view is current
 git fetch --tags
 
-# Find the latest version tag, sorted semantically
-# --sort=-version:refname handles 1.10.0 > 1.9.0 correctly (unlike alphabetical)
-PREV_TAG=$(git tag --sort=-version:refname | grep -E '^[vV]?[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+# Compare numeric components after removing one optional leading v/V; retain the original tag
+PREV_TAG=$(
+  git tag |
+  grep -E '^[vV]?[0-9]+\.[0-9]+\.[0-9]+$' |
+  awk '{ tag=$0; version=$0; sub(/^[vV]/, "", version); print version "\t" tag }' |
+  sort -t "$(printf '\t')" -k1,1Vr -k2,2 |
+  head -1 |
+  cut -f2-
+)
 echo "Latest tag: $PREV_TAG"
 ```
 
@@ -93,11 +99,17 @@ echo "Latest tag: $PREV_TAG"
 # Fetch all tags from remote to ensure local view is current
 git fetch --tags
 
-# Find the latest version tag, sorted semantically
-# --sort=-version:refname handles 1.10.0 > 1.9.0 correctly (unlike alphabetical)
-$prevTag = git tag --sort='-version:refname' | `
-  Select-String '^[vV]?\d+\.\d+\.\d+$' | `
-  Select-Object -First 1 -ExpandProperty Line
+# Compare numeric components after removing one optional leading v/V; retain the original tag
+$prevTag = git tag |
+  Where-Object { $_ -match '^[vV]?\d+\.\d+\.\d+$' } |
+  ForEach-Object {
+    [pscustomobject]@{
+      Version = [version]($_ -replace '^[vV]', '')
+      Tag = $_
+    }
+  } |
+  Sort-Object -Property @{ Expression = 'Version'; Descending = $true }, @{ Expression = 'Tag'; Descending = $false } |
+  Select-Object -First 1 -ExpandProperty Tag
 
 if ($prevTag) {
   $prevSha = git rev-list -n 1 $prevTag
@@ -119,6 +131,10 @@ and hasn't been pushed - they may want to push it before continuing.
 
 - `PREV_TAG` is the tag name exactly as found (e.g. `v1.4.2`). Strip any leading `v`
   when doing arithmetic; preserve it when naming things.
+- For example, among `v1.9.0` and `2.0.0`, select `2.0.0`: compare the numeric
+  components after stripping one optional leading `v`/`V`, but keep the original tag
+  spelling for checkout and output. Equal numeric versions are resolved deterministically
+  by tag-name order.
 - If **no tags exist at all**, treat `PREV_TAG` as `(none)`, set `PREV_SHA` to the
   first commit, and default the new version to `1.0.0` (skip Step 4 versioning logic;
   go straight to Step 5).

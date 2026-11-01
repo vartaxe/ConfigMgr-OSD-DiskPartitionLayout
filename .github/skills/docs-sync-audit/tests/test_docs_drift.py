@@ -37,9 +37,6 @@ class DocsDriftTests(unittest.TestCase):
             script = repo / "settings.ps1"
             script.write_text(
                 '$env:ASSIGN_ONLY = "configured"\n'
-                '$env:APPEND_ONLY += "configured"\n'
-                '++$env:PREFIX_INCREMENT\n'
-                '$env:POSTFIX_INCREMENT--\n'
                 '# $env:LINE_COMMENT\n'
                 '<# $env:BLOCK_COMMENT\n'
                 '   <# $env:NESTED_COMMENT #>\n'
@@ -54,8 +51,73 @@ class DocsDriftTests(unittest.TestCase):
             self.assertEqual(
                 env_names,
                 {
-                    "ACTUAL_READ": ["settings.ps1:10"],
-                    "EXPANDED_READ": ["settings.ps1:11"],
+                    "ACTUAL_READ": ["settings.ps1:7"],
+                    "EXPANDED_READ": ["settings.ps1:8"],
+                })
+
+    def test_powershell_escaped_env_references_are_not_reads(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            script = repo / "settings.ps1"
+            script.write_text(
+                'Write-Output `$env:ESCAPED_UNQUOTED\n'
+                'Write-Output "`$env:ESCAPED_EXPANDED"\n'
+                'Write-Output $env:ACTUAL_READ\n'
+                'Write-Output "expanded=$env:EXPANDED_READ"\n',
+                encoding="utf-8")
+
+            self.assertEqual(
+                DOCS_DRIFT.env_names_from_code(repo, ["settings.ps1"]),
+                {
+                    "ACTUAL_READ": ["settings.ps1:3"],
+                    "EXPANDED_READ": ["settings.ps1:4"],
+                })
+
+    def test_powershell_compound_assignments_and_increments_are_reads(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            script = repo / "settings.ps1"
+            script.write_text(
+                '$env:ADD += 1\n'
+                '$env:SUBTRACT -= 1\n'
+                '$env:MULTIPLY *= 2\n'
+                '$env:DIVIDE /= 2\n'
+                '$env:MODULO %= 2\n'
+                '$env:COALESCE ??= 1\n'
+                '$env:POSTFIX++\n'
+                '--$env:PREFIX\n'
+                '$env:ASSIGN = 1\n',
+                encoding="utf-8")
+
+            self.assertEqual(
+                DOCS_DRIFT.env_names_from_code(repo, ["settings.ps1"]),
+                {
+                    "ADD": ["settings.ps1:1"],
+                    "SUBTRACT": ["settings.ps1:2"],
+                    "MULTIPLY": ["settings.ps1:3"],
+                    "DIVIDE": ["settings.ps1:4"],
+                    "MODULO": ["settings.ps1:5"],
+                    "COALESCE": ["settings.ps1:6"],
+                    "POSTFIX": ["settings.ps1:7"],
+                    "PREFIX": ["settings.ps1:8"],
+                })
+
+    def test_env_sample_strips_only_export_prefix_and_preserves_key_case(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            sample = repo / ".env.example"
+            sample.write_text(
+                "export FOO=secret\n"
+                "exported=secret\n"
+                "MiXeD_KEY=secret\n",
+                encoding="utf-8")
+
+            self.assertEqual(
+                DOCS_DRIFT.env_names_documented(repo, [".env.example"]),
+                {
+                    "FOO": ".env.example:1",
+                    "exported": ".env.example:2",
+                    "MiXeD_KEY": ".env.example:3",
                 })
 
     def test_skill_context_inline_code_and_powershell_env(self):
@@ -133,6 +195,31 @@ continues inside this code span`
             env_names = DOCS_DRIFT.env_names_from_code(repo, files)
             self.assertEqual(set(env_names), {"windir", "SystemDrive", "COMPUTERNAME"})
 
+    def test_inline_code_pairs_equal_length_delimiters(self):
+        text = "`one ``two` three`` four`"
+
+        cleaned = DOCS_DRIFT.markdown_lines_without_code(text)
+
+        self.assertEqual(
+            cleaned[0][1],
+            " " * len("`one ``two`") + " three`` four`")
+
+    def test_escaped_inline_code_delimiter_is_not_an_opener(self):
+        text = r"\`escaped ` [Broken](missing.md)"
+
+        cleaned = DOCS_DRIFT.markdown_lines_without_code(text)
+
+        self.assertEqual(cleaned[0][1], text)
+
+    def test_unmatched_inline_code_does_not_pair_across_paragraphs(self):
+        text = "`unmatched opener\n\n[Broken](missing.md) `"
+
+        cleaned = DOCS_DRIFT.markdown_lines_without_code(text)
+
+        self.assertEqual(
+            [line for _, line in cleaned],
+            ["`unmatched opener", "", "[Broken](missing.md) `"])
+
     def test_powershell_env_case_mismatch_is_visible_in_build(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
@@ -202,23 +289,67 @@ continues inside this code span`
                 "missing-script-file",
                 {finding["kind"] for finding in result["findings"]})
 
-    def test_script_path_finds_file_nested_under_cd_working_directory(self):
+    def test_script_path_restores_nested_pushd_directories(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
-            script = repo / "tools" / "scripts" / "build.py"
-            script.parent.mkdir(parents=True)
-            script.write_text("print('ok')\n", encoding="utf-8")
+            for relative in (
+                    "tools/scripts/outer.py",
+                    "tools/nested/scripts/inner.py",
+                    "scripts/root.py"):
+                script = repo / relative
+                script.parent.mkdir(parents=True, exist_ok=True)
+                script.write_text("print('ok')\n", encoding="utf-8")
             doc = repo / "README.md"
             doc.write_text(
-                "```sh\npushd tools\npython scripts/build.py\npopd\n```\n",
-                encoding="utf-8")
+                "```sh\n"
+                "pushd tools\n"
+                "pushd nested\n"
+                "python scripts/inner.py\n"
+                "popd\n"
+                "python scripts/outer.py\n"
+                "popd\n"
+                "python scripts/root.py\n"
+                "```\n", encoding="utf-8")
 
-            result = DOCS_DRIFT.build(
-                repo, ["tools/scripts/build.py", "README.md"])
+            result = DOCS_DRIFT.build(repo, [
+                "tools/scripts/outer.py", "tools/nested/scripts/inner.py",
+                "scripts/root.py", "README.md",
+            ])
 
             self.assertNotIn(
                 "missing-script-file",
                 {finding["kind"] for finding in result["findings"]})
+
+    def test_unresolved_pushd_skips_script_path_resolution(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            tools = repo / "tools"
+            tools.mkdir()
+            doc = repo / "README.md"
+            doc.write_text(
+                "```sh\n"
+                "pushd tools\n"
+                "pushd $WORK_DIR\n"
+                "python scripts/build.py\n"
+                "```\n", encoding="utf-8")
+
+            result = DOCS_DRIFT.build(repo, ["README.md"])
+
+            self.assertNotIn(
+                "missing-script-file",
+                {finding["kind"] for finding in result["findings"]})
+
+    def test_popd_with_empty_stack_keeps_current_directory(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            tools = repo / "tools"
+            tools.mkdir()
+            cwd, stack, _, commands = DOCS_DRIFT.script_commands_in_line(
+                repo, "popd", Path("tools"), [], True)
+
+            self.assertEqual(cwd, Path("tools"))
+            self.assertEqual(stack, [])
+            self.assertEqual(commands, [])
 
     def test_root_script_does_not_mask_missing_script_after_cd(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -262,6 +393,27 @@ continues inside this code span`
                 repo, ["app.py", "package/config.py"])
             self.assertNotIn("package/config.py", dead)
 
+    def test_go_files_in_same_package_are_not_flagged_as_unreferenced(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            (repo / "main.go").write_text(
+                "package main\n\nfunc main() {\n\trunHelper()\n}\n",
+                encoding="utf-8")
+            (repo / "helper.go").write_text(
+                'package main\n\nimport "os"\n\n'
+                'func runHelper() {\n\t_ = os.Getenv("API_TOKEN")\n}\n',
+                encoding="utf-8")
+            (repo / "README.md").write_text(
+                "Configure `API_TOKEN` before running the service.\n",
+                encoding="utf-8")
+
+            result = DOCS_DRIFT.build(
+                repo, ["main.go", "helper.go", "README.md"])
+
+            self.assertNotIn(
+                "documented-env-in-unreferenced-module",
+                {finding["kind"] for finding in result["findings"]})
+
     def test_python_main_guarded_script_is_not_unreferenced(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
@@ -303,6 +455,29 @@ continues inside this code span`
             kinds = {finding["kind"] for finding in result["findings"]}
             self.assertIn("missing-script", kinds)
             self.assertIn("missing-make-target", kinds)
+
+    def test_make_multi_target_rule_accepts_each_target_and_rejects_unknown(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            (repo / "Makefile").write_text(
+                "NAME := assignment\n"
+                "%.o: %.c\n\tghost: recipe\n"
+                "build test: deps\n\t@echo $@\n", encoding="utf-8")
+            self.assertEqual(
+                DOCS_DRIFT.makefile_targets(repo, "Makefile"), {"build", "test"})
+            doc = repo / "README.md"
+            doc.write_text(
+                "```sh\nmake build\nmake test\nmake unknown\n```\n",
+                encoding="utf-8")
+
+            result = DOCS_DRIFT.build(repo, ["Makefile", "README.md"])
+
+            missing_targets = [
+                finding for finding in result["findings"]
+                if finding["kind"] == "missing-make-target"
+            ]
+            self.assertEqual(len(missing_targets), 1)
+            self.assertIn("unknown", missing_targets[0]["detail"])
 
     def test_make_target_declared_only_in_nested_makefile_is_missing_at_root(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -439,12 +614,60 @@ continues inside this code span`
     def test_unresolved_explicit_makefile_skips_target_validation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
-            (repo / "Makefile").write_text("# no targets\n", encoding="utf-8")
+            (repo / "Makefile").write_text("root-only:\n", encoding="utf-8")
             doc = repo / "README.md"
             doc.write_text(
-                "```sh\nmake -f missing.mk surprise\n```\n", encoding="utf-8")
+                "```sh\n"
+                "make -f --jobs=4 surprise\n"
+                "make --file= missing-target\n"
+                "make -f missing.mk unknown-target\n"
+                "make --file=missing.mk unknown-target\n"
+                "make missing-control\n"
+                "```\n", encoding="utf-8")
 
             result = DOCS_DRIFT.build(repo, ["Makefile", "README.md"])
+
+            missing_targets = [
+                finding for finding in result["findings"]
+                if finding["kind"] == "missing-make-target"
+            ]
+            self.assertEqual(len(missing_targets), 1)
+            self.assertIn("missing-control", missing_targets[0]["detail"])
+
+    def test_explicit_makefile_rejects_unknown_target(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            tools = repo / "tools"
+            tools.mkdir()
+            (tools / "Makefile").write_text("deploy:\n", encoding="utf-8")
+            doc = repo / "README.md"
+            doc.write_text(
+                "```sh\nmake -f tools/Makefile surprise\n```\n",
+                encoding="utf-8")
+
+            result = DOCS_DRIFT.build(
+                repo, ["tools/Makefile", "README.md"])
+
+            missing_targets = [
+                finding for finding in result["findings"]
+                if finding["kind"] == "missing-make-target"
+            ]
+            self.assertEqual(len(missing_targets), 1)
+            self.assertIn("surprise", missing_targets[0]["detail"])
+
+    def test_explicit_makefile_accepts_known_target(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            tools = repo / "tools"
+            tools.mkdir()
+            (tools / "Makefile").write_text("deploy:\n", encoding="utf-8")
+            doc = repo / "README.md"
+            doc.write_text(
+                "```sh\nmake --file=tools/Makefile deploy\n```\n",
+                encoding="utf-8")
+
+            result = DOCS_DRIFT.build(
+                repo, ["tools/Makefile", "README.md"])
 
             self.assertNotIn(
                 "missing-make-target",
@@ -544,6 +767,100 @@ npm run build
                 "missing-script",
                 {finding["kind"] for finding in result["findings"]})
 
+    def test_npm_multi_workspace_flags_script_missing_from_one_workspace(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            web = repo / "packages" / "web"
+            api = repo / "packages" / "api"
+            web.mkdir(parents=True)
+            api.mkdir(parents=True)
+            (repo / "package.json").write_text('{}\n', encoding="utf-8")
+            (web / "package.json").write_text(
+                '{"name": "@acme/web", "scripts": {"build": "build"}}\n',
+                encoding="utf-8")
+            (api / "package.json").write_text(
+                '{"name": "@acme/api", "scripts": {"test": "test"}}\n',
+                encoding="utf-8")
+            docs = repo / "docs"
+            docs.mkdir()
+            doc = docs / "commands.md"
+            doc.write_text(
+                "```sh\nnpm -w packages/web --workspace @acme/api run build\n```\n",
+                encoding="utf-8")
+
+            result = DOCS_DRIFT.build(repo, [
+                "package.json", "packages/web/package.json", "packages/api/package.json",
+                "docs/commands.md",
+            ])
+
+            missing_scripts = [
+                finding for finding in result["findings"]
+                if finding["kind"] == "missing-script"
+            ]
+            self.assertEqual(len(missing_scripts), 1)
+            self.assertIn("build", missing_scripts[0]["detail"])
+            self.assertIn("every applicable package.json", missing_scripts[0]["detail"])
+
+    def test_npm_multi_workspace_if_present_allows_missing_script(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            web = repo / "packages" / "web"
+            api = repo / "packages" / "api"
+            web.mkdir(parents=True)
+            api.mkdir(parents=True)
+            (repo / "package.json").write_text('{}\n', encoding="utf-8")
+            (web / "package.json").write_text(
+                '{"name": "@acme/web", "scripts": {"build": "build"}}\n',
+                encoding="utf-8")
+            (api / "package.json").write_text(
+                '{"name": "@acme/api", "scripts": {"test": "test"}}\n',
+                encoding="utf-8")
+            docs = repo / "docs"
+            docs.mkdir()
+            doc = docs / "commands.md"
+            doc.write_text(
+                "```sh\nnpm -w packages/web --workspace @acme/api run build --if-present\n```\n",
+                encoding="utf-8")
+
+            result = DOCS_DRIFT.build(repo, [
+                "package.json", "packages/web/package.json", "packages/api/package.json",
+                "docs/commands.md",
+            ])
+
+            self.assertNotIn(
+                "missing-script",
+                {finding["kind"] for finding in result["findings"]})
+
+    def test_npm_single_selected_workspace_script_is_valid(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            web = repo / "packages" / "web"
+            api = repo / "packages" / "api"
+            web.mkdir(parents=True)
+            api.mkdir(parents=True)
+            (repo / "package.json").write_text('{}\n', encoding="utf-8")
+            (web / "package.json").write_text(
+                '{"name": "@acme/web", "scripts": {"build": "build"}}\n',
+                encoding="utf-8")
+            (api / "package.json").write_text(
+                '{"name": "@acme/api", "scripts": {"test": "test"}}\n',
+                encoding="utf-8")
+            docs = repo / "docs"
+            docs.mkdir()
+            doc = docs / "commands.md"
+            doc.write_text(
+                "```sh\nnpm --workspace @acme/web run build\n```\n",
+                encoding="utf-8")
+
+            result = DOCS_DRIFT.build(repo, [
+                "package.json", "packages/web/package.json", "packages/api/package.json",
+                "docs/commands.md",
+            ])
+
+            self.assertNotIn(
+                "missing-script",
+                {finding["kind"] for finding in result["findings"]})
+
     def test_unresolved_npm_workspace_selector_skips_script_check(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
@@ -600,7 +917,7 @@ npm run build
                     _, calls = DOCS_DRIFT.npm_commands_in_line(
                         repo, npm, command, Path("."))
                     self.assertEqual(len(calls), 1)
-                    self.assertEqual(calls[0], (expected_script, expected_scripts))
+                    self.assertEqual(calls[0], (expected_script, [expected_scripts], False))
 
     def test_tilde_fenced_commands_are_checked(self):
         with tempfile.TemporaryDirectory() as temp_dir:

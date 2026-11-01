@@ -33,46 +33,65 @@ set "_argOneMyLib=%~2"
 set "_argTwoMyLib=%~3"
 set "_argThreeMyLib=%~4"
 
+call :_setSuccessMyLib
+set "_resultMyLib=0"
+
 if "%_funcMyLib%"=="/?" (
     call :_showHelpMyLib
+    call set "_resultMyLib=%%ERRORLEVEL%%"
     goto _removeBatchVariablesMyLib
 )
 if /i "%_funcMyLib%"=="-h" (
     call :_showHelpMyLib
+    call set "_resultMyLib=%%ERRORLEVEL%%"
     goto _removeBatchVariablesMyLib
 )
 if /i "%_funcMyLib%"=="--help" (
     call :_showHelpMyLib
+    call set "_resultMyLib=%%ERRORLEVEL%%"
     goto _removeBatchVariablesMyLib
 )
 
 if /i "%_funcMyLib%"=="trimWhitespace" (
     call :_trimWhitespaceMyLib
+    call set "_resultMyLib=%%ERRORLEVEL%%"
     goto _removeBatchVariablesMyLib
 )
 if /i "%_funcMyLib%"=="toLower" (
     call :_toLowerMyLib
+    call set "_resultMyLib=%%ERRORLEVEL%%"
     goto _removeBatchVariablesMyLib
 )
 if /i "%_funcMyLib%"=="getTimestamp" (
     call :_getTimestampMyLib
+    call set "_resultMyLib=%%ERRORLEVEL%%"
     goto _removeBatchVariablesMyLib
 )
 if /i "%_funcMyLib%"=="logMessage" (
     call :_logMessageMyLib
+    call set "_resultMyLib=%%ERRORLEVEL%%"
     goto _removeBatchVariablesMyLib
 )
 if /i "%_funcMyLib%"=="padRight" (
     call :_padRightMyLib
+    call set "_resultMyLib=%%ERRORLEVEL%%"
     goto _removeBatchVariablesMyLib
 )
 
 echo ERROR: Unknown function "%_funcMyLib%". Run "%~n0 /?" for usage.
+call :_setFailureMyLib
+call set "_resultMyLib=%%ERRORLEVEL%%"
 goto _removeBatchVariablesMyLib
 
 :: ========================================================================
 :: LIBRARY FUNCTIONS
 :: ========================================================================
+
+:_setSuccessMyLib
+    exit /b 0
+
+:_setFailureMyLib
+    exit /b 1
 
 :_trimWhitespaceMyLib
     REM Trim leading and trailing spaces from a variable.
@@ -205,8 +224,7 @@ goto :eof
 
 :_padRightInvalidWidthMyLib
     echo ERROR: padRight width must be an integer from 0 to 8000.
-    endlocal
-goto :eof
+    endlocal & exit /b 1
 
 :: ========================================================================
 :: HELP
@@ -236,11 +254,13 @@ goto :eof
 :: CLEANUP — Remove all batch variables.
 :: ========================================================================
 :_removeBatchVariablesMyLib
+    set "_returnCodeMyLib=%_resultMyLib%"
     set _helpLinesMyLib=
     set _funcMyLib=
     set _argOneMyLib=
     set _argTwoMyLib=
     set _argThreeMyLib=
+    set _resultMyLib=
     set _valMyLib=
     REM Append new variables above this line.
-    exit /b
+    set "_returnCodeMyLib=" & exit /b %_returnCodeMyLib%
