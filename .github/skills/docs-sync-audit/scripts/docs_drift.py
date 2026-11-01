@@ -35,6 +35,7 @@ are used, because the right-hand side is a credential by design.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import shutil
@@ -70,14 +71,15 @@ NPM_OPTIONS_WITH_VALUE = NPM_PACKAGE_OPTIONS | {
     "--cache", "--globalconfig", "--location", "--loglevel", "--registry",
     "--scope", "--script-shell", "--userconfig", "--workspace", "-w",
 }
-CMD_MAKE = re.compile(r"\bmake\s+([A-Za-z0-9_.-]+)")
+MAKE_TARGET = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
 CMD_SCRIPT = re.compile(r"(?:^|\s)(\./[A-Za-z0-9_./-]+|(?:python3?|node|bash|sh|ruby)\s+([A-Za-z0-9_./-]+\.[A-Za-z0-9]+))")
 SHELL_SEPARATOR = re.compile(r"\s*(?:&&|\|\||;)\s*")
 CD_COMMAND = re.compile(r"^(?:cd|pushd)\s+(['\"]?)([^'\"]+?)\1\s*$")
+POPD_COMMAND = re.compile(r"^popd\s*$")
 
 MD_LINK = re.compile(r"!?\[[^\]]*\]\(([^)\s]+)")
 BACKTICK = re.compile(r"`([^`\n]+)`")
-INLINE_CODE = re.compile(r"(`+).*?\1")
+BACKTICK_RUN = re.compile(r"`+")
 MARKDOWN_FENCE = FENCE
 FROM_IMPORT_SPEC = re.compile(
     r"^\s*from\s+([A-Za-z0-9_.]+)\s+import\s+([^#\n]+)", re.M)
@@ -92,12 +94,14 @@ ENV_IN_CODE = [
     re.compile(r"""process\.env\[\s*['"]([A-Z][A-Z0-9_]*)['"]"""),
     re.compile(r"""os\.environ(?:\.get)?\[?\(?\s*['"]([A-Z][A-Z0-9_]*)['"]"""),
     re.compile(r"""os\.getenv\(\s*['"]([A-Z][A-Z0-9_]*)['"]"""),
+    re.compile(r"""os\.Getenv\(\s*['"]([A-Z][A-Z0-9_]*)['"]"""),
+    re.compile(r"""os\.LookupEnv\(\s*['"]([A-Z][A-Z0-9_]*)['"]"""),
     re.compile(r"""getenv\(\s*['"]([A-Z][A-Z0-9_]*)['"]"""),
     re.compile(r"""ENV\[\s*['"]([A-Z][A-Z0-9_]*)['"]"""),
     re.compile(r"""Deno\.env\.get\(\s*['"]([A-Z][A-Z0-9_]*)['"]"""),
 ]
 ENV_NAME = re.compile(r"\b([A-Z][A-Z0-9_]{2,})\b")
-POWERSHELL_ENV = re.compile(r"(?i)\$env:([A-Za-z][A-Za-z0-9_]*)")
+POWERSHELL_ENV = re.compile(r"(?i)\$env:([A-Za-z_][A-Za-z0-9_]*)")
 
 # Import forms across the languages handled above. Four alternatives, so findall
 # returns tuples and the caller takes the first non-empty group.
@@ -157,10 +161,11 @@ def read(path: Path) -> str:
         return ""
 
 
-def available_commands(repo: Path, files: list[str]) -> tuple[dict[str, set[str]], set[str]]:
+def available_commands(
+        repo: Path, files: list[str]) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
     """Real npm scripts and make targets, keyed by the directory that declares them."""
     npm: dict[str, set[str]] = {}
-    make: set[str] = set()
+    make: dict[str, set[str]] = {}
     for rel in files:
         base = Path(rel).name
         prefix = str(Path(rel).parent).replace("\\", "/")
@@ -173,9 +178,25 @@ def available_commands(repo: Path, files: list[str]) -> tuple[dict[str, set[str]
             if isinstance(data.get("scripts"), dict):
                 npm[prefix].update(data["scripts"].keys())
         elif base == "Makefile":
-            targets = re.findall(r"^([A-Za-z0-9][A-Za-z0-9_.-]*):(?!=)", read(repo / rel), re.M)
-            make.update(targets)
+            make[prefix] = makefile_targets(repo, rel)
     return npm, make
+
+
+def npm_workspace_names(repo: Path, files: list[str]) -> dict[str, set[str]]:
+    """Map workspace package names to package directories."""
+    names: dict[str, set[str]] = {}
+    for rel in files:
+        if Path(rel).name != "package.json":
+            continue
+        try:
+            data = json.loads(read(repo / rel))
+        except ValueError:
+            continue
+        name = data.get("name")
+        if isinstance(name, str) and name:
+            directory = Path(rel).parent.as_posix()
+            names.setdefault(name, set()).add(directory)
+    return names
 
 
 def fenced_blocks(text: str) -> list[tuple[int, str]]:
@@ -217,6 +238,22 @@ def directory_from(repo: Path, current: Path, target: str) -> Path:
         return current
 
 
+def make_directory_from(repo: Path, current: Path, target: str) -> Path | None:
+    """Resolve a Make -C directory without falling back to another inventory."""
+    target_path = Path(target.replace("\\", "/"))
+    candidate = target_path if target_path.is_absolute() else repo / current / target_path
+    try:
+        return candidate.resolve().relative_to(repo.resolve())
+    except ValueError:
+        return None
+
+
+def makefile_targets(repo: Path, rel: str) -> set[str]:
+    """Read target names from one Makefile inventory."""
+    return set(re.findall(
+        r"^([A-Za-z0-9][A-Za-z0-9_.-]*):(?!=)", read(repo / rel), re.M))
+
+
 def npm_package_scripts(npm: dict[str, set[str]], cwd: Path) -> set[str]:
     """Select scripts from the closest package.json that contains the invocation cwd."""
     applicable = []
@@ -225,6 +262,30 @@ def npm_package_scripts(npm: dict[str, set[str]], cwd: Path) -> set[str]:
         if cwd == package_dir or package_dir in cwd.parents:
             applicable.append((len(package_dir.parts), scripts))
     return max(applicable, key=lambda item: item[0])[1] if applicable else set()
+
+
+def npm_workspace_package_scripts(
+        repo: Path, npm: dict[str, set[str]], workspace_names: dict[str, set[str]],
+        selector: str) -> set[str] | None:
+    """Resolve a workspace selector by package directory or package name."""
+    target = Path(selector.replace("\\", "/"))
+    candidate = target if target.is_absolute() else repo / target
+    try:
+        directory = candidate.resolve().relative_to(repo.resolve()).as_posix()
+    except ValueError:
+        return None
+    if directory in npm:
+        return npm[directory]
+
+    if "/" not in selector and "\\" not in selector:
+        matches = [path for path in npm if Path(path).name == selector]
+        if len(matches) == 1:
+            return npm[matches[0]]
+
+    matches = workspace_names.get(selector, set())
+    if len(matches) == 1:
+        return npm.get(next(iter(matches)))
+    return None
 
 
 def documentation_npm_cwd(doc: str, npm: dict[str, set[str]]) -> Path:
@@ -266,7 +327,9 @@ def shell_tokens(command: str) -> list[str]:
 
 
 def npm_commands_in_line(repo: Path, npm: dict[str, set[str]], line: str,
-                         cwd: Path) -> tuple[Path, list[tuple[str, set[str]]]]:
+                         cwd: Path,
+                         workspace_names: dict[str, set[str]] | None = None
+                         ) -> tuple[Path, list[tuple[str, set[str]]]]:
     """Track shell directory changes and resolve each npm run to its package."""
     commands = []
     for segment in SHELL_SEPARATOR.split(line):
@@ -304,39 +367,210 @@ def npm_commands_in_line(repo: Path, npm: dict[str, set[str]], line: str,
                 continue
 
             prefix = None
+            workspace_selectors = []
             i = 0
             while i < len(arguments):
                 option = arguments[i]
                 if option.startswith(("--prefix=", "--cwd=", "--dir=")):
                     prefix = option.split("=", 1)[1]
+                elif option.startswith(("--workspace=", "-w=")):
+                    workspace_selectors.append(option.split("=", 1)[1])
                 elif option in NPM_PACKAGE_OPTIONS and i + 1 < len(arguments):
                     prefix = arguments[i + 1]
                     i += 1
+                elif option in {"--workspace", "-w"} and i + 1 < len(arguments):
+                    workspace_selectors.append(arguments[i + 1])
+                    i += 1
                 i += 1
             command_cwd = directory_from(repo, cwd, prefix) if prefix else cwd
-            commands.append((script, npm_package_scripts(npm, command_cwd)))
+            if workspace_selectors:
+                selected_scripts = []
+                for selector in workspace_selectors:
+                    scripts = npm_workspace_package_scripts(
+                        repo, npm, workspace_names or {}, selector)
+                    if scripts is None:
+                        selected_scripts = []
+                        break
+                    selected_scripts.append(scripts)
+                if selected_scripts:
+                    commands.append((script, set().union(*selected_scripts)))
+            else:
+                commands.append((script, npm_package_scripts(npm, command_cwd)))
+    return cwd, commands
+
+
+def make_commands_in_line(
+        repo: Path, make: dict[str, set[str]], line: str, cwd: Path,
+        files: set[str] | None = None
+        ) -> tuple[Path, list[tuple[str, set[str]]]]:
+    """Track shell directory changes and resolve Make options before collecting targets."""
+    commands = []
+    for segment in SHELL_SEPARATOR.split(line):
+        cd_match = CD_COMMAND.match(segment.strip())
+        if cd_match:
+            cwd = directory_from(repo, cwd, cd_match.group(2).strip())
+            continue
+        tokens = shell_tokens(segment)
+        for make_index, token in enumerate(tokens):
+            if token != "make":
+                continue
+            arguments = tokens[make_index + 1:]
+            make_cwd = cwd
+            directory_resolved = True
+            explicit_makefiles = []
+            explicit_makefiles_requested = False
+            explicit_makefiles_resolved = True
+            targets = []
+            i = 0
+            while i < len(arguments):
+                option = arguments[i]
+                value = None
+                option_name = option
+                if option.startswith("--directory="):
+                    option_name, value = "--directory", option.split("=", 1)[1]
+                elif option.startswith("--file="):
+                    option_name, value = "--file", option.split("=", 1)[1]
+                elif option.startswith("--jobs="):
+                    option_name, value = "--jobs", option.split("=", 1)[1]
+                elif option.startswith("-C") and option != "-C" and not option.startswith("--"):
+                    option_name, value = "-C", option[2:]
+                elif option.startswith("-f") and option != "-f" and not option.startswith("--"):
+                    option_name, value = "-f", option[2:]
+                elif option.startswith("-j") and option != "-j" and not option.startswith("--"):
+                    option_name, value = "-j", option[2:].lstrip("=")
+
+                if option_name in {"-C", "--directory", "-f", "--file"}:
+                    if value is None and i + 1 < len(arguments):
+                        i += 1
+                        value = arguments[i]
+                    if value:
+                        if option_name in {"-C", "--directory"}:
+                            resolved = make_directory_from(repo, make_cwd, value)
+                            if resolved is None:
+                                directory_resolved = False
+                            else:
+                                make_cwd = resolved
+                        else:
+                            explicit_makefiles_requested = True
+                            explicit_makefiles_resolved = False
+                            explicit_makefiles.append(value)
+                    elif option_name in {"-C", "--directory"}:
+                        directory_resolved = False
+                    else:
+                        explicit_makefiles_requested = True
+                elif option_name in {"-j", "--jobs"}:
+                    if value is None and i + 1 < len(arguments):
+                        next_argument = arguments[i + 1]
+                        if next_argument.isdigit():
+                            i += 1
+                elif option.startswith("-"):
+                    pass
+                elif MAKE_TARGET.fullmatch(option):
+                    targets.append(option)
+                i += 1
+
+            if not directory_resolved:
+                continue
+            inventory = None
+            if explicit_makefiles_requested and (
+                    not explicit_makefiles or not explicit_makefiles_resolved):
+                continue
+            if explicit_makefiles:
+                resolved_makefiles = []
+                for makefile in explicit_makefiles:
+                    makefile_path = Path(makefile.replace("\\", "/"))
+                    candidate = (makefile_path if makefile_path.is_absolute()
+                                 else repo / make_cwd / makefile_path)
+                    try:
+                        rel = candidate.resolve().relative_to(repo.resolve()).as_posix()
+                    except ValueError:
+                        resolved_makefiles = []
+                        break
+                    if files is not None and rel not in files:
+                        resolved_makefiles = []
+                        break
+                    if files is None and Path(rel).name == "Makefile":
+                        targets_for_file = make.get(Path(rel).parent.as_posix())
+                        if targets_for_file is None:
+                            resolved_makefiles = []
+                            break
+                    else:
+                        targets_for_file = makefile_targets(repo, rel)
+                    resolved_makefiles.append(targets_for_file)
+                if resolved_makefiles:
+                    inventory = set().union(*resolved_makefiles)
+            else:
+                inventory = make.get(make_cwd.as_posix())
+            if inventory is not None:
+                commands.extend((target, inventory) for target in targets)
     return cwd, commands
 
 
 def markdown_lines_without_code(text: str) -> list[tuple[int, str]]:
     """Return Markdown lines with fenced and inline code removed, preserving line numbers."""
-    out: list[tuple[int, str]] = []
+    lines = text.splitlines()
+    fenced_lines = [False] * len(lines)
     fence_char = ""
     fence_length = 0
-    for i, line in enumerate(text.splitlines(), start=1):
+    for i, line in enumerate(lines):
         marker = MARKDOWN_FENCE.match(line)
         if fence_char:
             if marker and marker.group(1)[0] == fence_char and len(marker.group(1)) >= fence_length:
                 fence_char = ""
                 fence_length = 0
-            out.append((i, ""))
+            fenced_lines[i] = True
         elif marker:
             fence_char = marker.group(1)[0]
             fence_length = len(marker.group(1))
-            out.append((i, ""))
-        else:
-            out.append((i, INLINE_CODE.sub(lambda match: " " * len(match.group()), line)))
-    return out
+            fenced_lines[i] = True
+
+    cleaned_lines = [list(line) for line in lines]
+    segment_start = 0
+    while segment_start < len(lines):
+        while segment_start < len(lines) and fenced_lines[segment_start]:
+            segment_start += 1
+        segment_end = segment_start
+        while segment_end < len(lines) and not fenced_lines[segment_end]:
+            segment_end += 1
+
+        runs: list[tuple[int, int, int]] = []
+        runs_by_length: dict[int, list[int]] = {}
+        for line_index in range(segment_start, segment_end):
+            for match in BACKTICK_RUN.finditer(lines[line_index]):
+                run_index = len(runs)
+                run_length = len(match.group())
+                runs.append((line_index, match.start(), run_length))
+                runs_by_length.setdefault(run_length, []).append(run_index)
+
+        matching_runs: dict[int, int] = {}
+        for run_indices in runs_by_length.values():
+            for opening, closing in zip(run_indices[::2], run_indices[1::2]):
+                matching_runs[opening] = closing
+
+        run_index = 0
+        while run_index < len(runs):
+            closing_index = matching_runs.get(run_index)
+            if closing_index is None:
+                run_index += 1
+                continue
+
+            start_line, start_column, _ = runs[run_index]
+            end_line, end_column, end_length = runs[closing_index]
+            for line_index in range(start_line, end_line + 1):
+                start = start_column if line_index == start_line else 0
+                end = (
+                    end_column + end_length
+                    if line_index == end_line else len(cleaned_lines[line_index])
+                )
+                cleaned_lines[line_index][start:end] = [" "] * (end - start)
+            run_index = closing_index + 1
+
+        segment_start = segment_end
+
+    return [
+        (i, "" if fenced_lines[i - 1] else "".join(line))
+        for i, line in enumerate(cleaned_lines, start=1)
+    ]
 
 
 def documented_script_exists(repo: Path, doc: str, candidate: str) -> bool:
@@ -354,6 +588,168 @@ def documented_script_exists(repo: Path, doc: str, candidate: str) -> bool:
     return any(path.exists() for path in candidates)
 
 
+def script_commands_in_line(
+        repo: Path, line: str, cwd: Path, directory_stack: list[Path],
+        explicit_directory_change: bool
+        ) -> tuple[Path, list[Path], bool, list[tuple[str, Path, bool]]]:
+    """Track shell directory changes and capture script paths at each invocation."""
+    commands = []
+    for segment in SHELL_SEPARATOR.split(line):
+        command = segment.strip()
+        cd_match = CD_COMMAND.match(command)
+        if cd_match:
+            if command.startswith("pushd"):
+                directory_stack.append(cwd)
+            cwd = directory_from(repo, cwd, cd_match.group(2).strip())
+            explicit_directory_change = True
+            continue
+        if POPD_COMMAND.fullmatch(command):
+            if directory_stack:
+                cwd = directory_stack.pop()
+            explicit_directory_change = True
+            continue
+
+        for whole, inner in CMD_SCRIPT.findall(segment):
+            candidate = inner or whole
+            if candidate and not PLACEHOLDER.search(candidate):
+                commands.append((candidate, cwd, explicit_directory_change))
+    return cwd, directory_stack, explicit_directory_change, commands
+
+
+def script_exists_at(repo: Path, cwd: Path, candidate: str) -> bool:
+    """Check a script path relative only to its invocation directory."""
+    path = Path(candidate.replace("\\", "/"))
+    target = path if path.is_absolute() else repo / cwd / path
+    return target.is_file()
+
+
+def powershell_env_reads(text: str) -> list[tuple[str, int]]:
+    """Return PowerShell environment references outside comments and assignments."""
+    found: list[tuple[str, int]] = []
+    assignment_operator = re.compile(r"(?:\?\?=|\+=|-=|\*=|/=|%=|=|\+\+|--)")
+    index = 0
+    line = 1
+    length = len(text)
+
+    while index < length:
+        if text.startswith("<#", index):
+            depth = 1
+            index += 2
+            while index < length and depth:
+                if text.startswith("<#", index):
+                    depth += 1
+                    index += 2
+                elif text.startswith("#>", index):
+                    depth -= 1
+                    index += 2
+                else:
+                    if text[index] == "\n":
+                        line += 1
+                    index += 1
+            continue
+
+        char = text[index]
+        if char == "#":
+            newline = text.find("\n", index)
+            if newline == -1:
+                break
+            index = newline
+            continue
+
+        if char == "@" and index + 2 < length and text[index + 1] in "\"'":
+            quote = text[index + 1]
+            newline = text.find("\n", index + 2)
+            if newline != -1 and not text[index + 2:newline].strip():
+                index = newline + 1
+                line += 1
+                terminator = quote + "@"
+                while index < length:
+                    line_end = text.find("\n", index)
+                    if line_end == -1:
+                        line_end = length
+                    if text.startswith(terminator, index):
+                        index = line_end + (line_end < length)
+                        if line_end < length:
+                            line += 1
+                        break
+                    if quote == '"':
+                        cursor = index
+                        while cursor < line_end:
+                            if text[cursor] == "`":
+                                cursor += 2
+                            else:
+                                match = POWERSHELL_ENV.match(text, cursor)
+                                if match:
+                                    found.append((match.group(1), line))
+                                    cursor = match.end()
+                                else:
+                                    cursor += 1
+                    index = line_end + (line_end < length)
+                    if line_end < length:
+                        line += 1
+                continue
+
+        if char == "'":
+            index += 1
+            while index < length:
+                if text.startswith("''", index):
+                    index += 2
+                elif text[index] == "'":
+                    index += 1
+                    break
+                else:
+                    if text[index] == "\n":
+                        line += 1
+                    index += 1
+            continue
+
+        if char == '"':
+            index += 1
+            while index < length:
+                if text[index] == "`":
+                    if index + 1 < length and text[index + 1] == "\n":
+                        line += 1
+                    index += 2
+                elif text[index] == '"':
+                    index += 1
+                    break
+                else:
+                    match = POWERSHELL_ENV.match(text, index)
+                    if match:
+                        found.append((match.group(1), line))
+                        index = match.end()
+                    else:
+                        if text[index] == "\n":
+                            line += 1
+                        index += 1
+            continue
+
+        match = POWERSHELL_ENV.match(text, index)
+        if match:
+            cursor = match.end()
+            while cursor < length and text[cursor] in " \t":
+                cursor += 1
+            prefix_cursor = index
+            while prefix_cursor > 0 and text[prefix_cursor - 1] in " \t":
+                prefix_cursor -= 1
+            prefix_operator = text[prefix_cursor - 2:prefix_cursor]
+            prefix_boundary = (
+                prefix_cursor == 2
+                or (prefix_cursor >= 2
+                    and (text[prefix_cursor - 3].isspace()
+                         or text[prefix_cursor - 3] in ";{}(),|&=+-*/%!")))
+            prefix_assignment = prefix_operator in {"++", "--"} and prefix_boundary
+            if assignment_operator.match(text, cursor) is None and not prefix_assignment:
+                found.append((match.group(1), line))
+            index = match.end()
+        else:
+            if char == "\n":
+                line += 1
+            index += 1
+
+    return found
+
+
 def env_names_from_code(repo: Path, files: list[str]) -> dict[str, list[str]]:
     """Env var names the code reads, mapped to every location that reads them."""
     found: dict[str, list[str]] = {}
@@ -363,9 +759,13 @@ def env_names_from_code(repo: Path, files: list[str]) -> dict[str, list[str]]:
         text = read(repo / rel)
         if not text or "env" not in text.lower():
             continue
+        if Path(rel).suffix.lower() in {".ps1", ".psm1", ".psd1"}:
+            for name, line in powershell_env_reads(text):
+                found.setdefault(name, []).append(f"{rel}:{line}")
+            continue
         for i, line in enumerate(text.splitlines(), start=1):
             names = [name for pattern in ENV_IN_CODE for name in pattern.findall(line)]
-            names.extend(name.upper() for name in re.findall(r"\$env:([A-Za-z_][A-Za-z0-9_]*)", line, re.I))
+            names.extend(re.findall(r"\$env:([A-Za-z_][A-Za-z0-9_]*)", line, re.I))
             for name in names:
                 found.setdefault(name, []).append(f"{rel}:{i}")
     return found
@@ -385,10 +785,13 @@ def unreferenced_modules(repo: Path, files: list[str]) -> set[str]:
         r"(^|/)(server|main|index|app|cli|__init__|__main__|conftest|setup|wsgi|asgi)\.[A-Za-z]+$",
         re.I)
     imported: set[str] = set()
+    guarded_entrypoints: set[str] = set()
     for rel in code:
         text = read(repo / rel)
         if not text:
             continue
+        if Path(rel).suffix.lower() == ".py" and has_python_main_guard(text):
+            guarded_entrypoints.add(rel)
         for groups in IMPORT_SPEC.findall(text):
             ref = next((g for g in groups if g), "").strip()
             if not ref:
@@ -406,12 +809,37 @@ def unreferenced_modules(repo: Path, files: list[str]) -> set[str]:
                     imported.add(Path(name).stem.lower())
     out = set()
     for rel in code:
-        if entrypoint.search(rel):
+        if rel in guarded_entrypoints or entrypoint.search(rel):
             continue
         stem = Path(rel).stem.lower()
         if stem not in imported and Path(rel).name.lower() not in imported:
             out.add(rel)
     return out
+
+
+def has_python_main_guard(text: str) -> bool:
+    """Whether Python source has a top-level ``if __name__ == "__main__"`` guard."""
+    try:
+        module = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return False
+
+    for statement in module.body:
+        if not isinstance(statement, ast.If):
+            continue
+        test = statement.test
+        if not (isinstance(test, ast.Compare)
+                and len(test.ops) == 1
+                and isinstance(test.ops[0], ast.Eq)
+                and len(test.comparators) == 1):
+            continue
+        left, right = test.left, test.comparators[0]
+        if ((isinstance(left, ast.Name) and left.id == "__name__"
+             and isinstance(right, ast.Constant) and right.value == "__main__")
+                or (isinstance(right, ast.Name) and right.id == "__name__"
+                    and isinstance(left, ast.Constant) and left.value == "__main__")):
+            return True
+    return False
 
 
 def env_names_documented(repo: Path, files: list[str]) -> dict[str, str]:
@@ -450,7 +878,7 @@ def env_names_documented(repo: Path, files: list[str]) -> dict[str, str]:
                             continue
                         documented.setdefault(name, f"{rel}:{i}")
                 for name in POWERSHELL_ENV.findall(line):
-                    documented.setdefault(name.upper(), f"{rel}:{i}")
+                    documented.setdefault(name, f"{rel}:{i}")
     return documented
 
 
@@ -471,6 +899,7 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
 
     file_set = set(files)
     npm_scripts, make_targets = available_commands(repo, files)
+    workspace_names = npm_workspace_names(repo, files)
     all_npm = set().union(*npm_scripts.values()) if npm_scripts else set()
     docs = [f for f in files
             if Path(f).suffix in DOC_EXTS and not any(p in SKIP_DIRS for p in Path(f).parts)]
@@ -483,8 +912,13 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
         # 1. commands
         for block in fenced_block_groups(text):
             npm_cwd = documentation_npm_cwd(doc, npm_scripts)
+            make_cwd = Path(".")
+            script_cwd = Path(".")
+            script_directory_stack: list[Path] = []
+            explicit_script_directory_change = False
             for lineno, line in block:
-                npm_cwd, npm_calls = npm_commands_in_line(repo, npm_scripts, line, npm_cwd)
+                npm_cwd, npm_calls = npm_commands_in_line(
+                    repo, npm_scripts, line, npm_cwd, workspace_names)
                 for script, applicable_scripts in set(
                         (script, frozenset(scripts)) for script, scripts in npm_calls):
                     if not npm_scripts:
@@ -497,19 +931,29 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
                         add("missing-script", "high", doc, lineno,
                             f"documents `{script}`, which is not a script in the applicable "
                             f"package.json.{hint}", source="package.json")
-                for target in set(CMD_MAKE.findall(line)):
-                    if make_targets and target not in make_targets and target != "-j":
+                make_cwd, make_calls = make_commands_in_line(
+                    repo, make_targets, line, make_cwd, file_set)
+                for target, applicable_targets in set(
+                        (target, frozenset(targets)) for target, targets in make_calls):
+                    if target not in applicable_targets:
                         add("missing-make-target", "high", doc, lineno,
-                            f"documents `make {target}`, which is not a target in the Makefile.",
+                            f"documents `make {target}`, which is not a target in the "
+                            "Makefile at the invocation directory.",
                             source="Makefile")
-                for whole, inner in CMD_SCRIPT.findall(line):
-                    candidate = inner or whole
-                    if not candidate or PLACEHOLDER.search(candidate):
-                        continue
+                (script_cwd, script_directory_stack,
+                 explicit_script_directory_change, script_calls) = script_commands_in_line(
+                    repo, line, script_cwd, script_directory_stack,
+                    explicit_script_directory_change)
+                for candidate, invocation_cwd, explicit_cwd in script_calls:
                     if candidate.endswith("/") or any(part in SKIP_DIRS
                                                       for part in Path(candidate).parts):
                         continue
-                    if candidate not in file_set and not documented_script_exists(repo, doc, candidate):
+                    exists = (
+                        script_exists_at(repo, invocation_cwd, candidate)
+                        if explicit_cwd else
+                        candidate in file_set or documented_script_exists(repo, doc, candidate)
+                    )
+                    if not exists:
                         add("missing-script-file", "high", doc, lineno,
                             f"documents running `{candidate}`, which does not exist.")
 

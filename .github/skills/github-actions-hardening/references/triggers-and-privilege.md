@@ -39,8 +39,14 @@ jobs:
       - run: npm install && npm test                        # runs the fork's code + scripts
 ```
 
-`npm install` alone runs arbitrary lifecycle scripts from the PR. With `pull_request_target` those
-scripts can read `secrets.*` and push commits with the write token.
+`npm install` alone runs arbitrary lifecycle scripts from the PR. With `pull_request_target`, the
+workflow can access repository secrets through expressions, but those secrets are not automatically
+exported into npm lifecycle scripts. A secret reaches a script only if the workflow explicitly
+passes it, for example through a step's `env:` or an action input.
+
+Separately, `actions/checkout` persists its GitHub token in local Git configuration by default, so
+code that runs Git may use that credential. Whether it can push depends on the token's effective
+permissions; persistence alone does not grant write access.
 
 ## The Safe Two-Workflow Pattern
 
