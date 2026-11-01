@@ -1454,7 +1454,8 @@ npm run build
             workspace = repo / "packages" / "web"
             workspace.mkdir(parents=True)
             (repo / "package.json").write_text(
-                '{"scripts": {"root-only": "root"}}\n', encoding="utf-8")
+                '{"workspaces": ["packages/*"], "scripts": {"root-only": "root"}}\n',
+                encoding="utf-8")
             (workspace / "package.json").write_text(
                 '{"name": "@acme/web", "scripts": {"build": "build"}}\n',
                 encoding="utf-8")
@@ -1479,7 +1480,8 @@ npm run build
             web = repo / "packages" / "web"
             api.mkdir(parents=True)
             web.mkdir(parents=True)
-            (repo / "package.json").write_text('{}\n', encoding="utf-8")
+            (repo / "package.json").write_text(
+                '{"workspaces": ["packages/*"]}\n', encoding="utf-8")
             (api / "package.json").write_text(
                 '{"name": "web", "scripts": {"build": "build"}}\n',
                 encoding="utf-8")
@@ -1523,13 +1525,99 @@ npm run build
                 "missing-script",
                 {finding["kind"] for finding in result["findings"]})
 
+    def test_continued_shell_commands_are_scanned_from_their_starting_line(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            tools = repo / "tools"
+            tools.mkdir()
+            (repo / "package.json").write_text(
+                '{"scripts": {"root-only": "root"}}\n', encoding="utf-8")
+            (tools / "package.json").write_text(
+                '{"scripts": {"build": "build"}}\n', encoding="utf-8")
+            (tools / "Makefile").write_text("deploy:\n", encoding="utf-8")
+            scripts = repo / "scripts"
+            scripts.mkdir()
+            (scripts / "existing.py").write_text("print('ok')\n", encoding="utf-8")
+            doc = repo / "README.md"
+            doc.write_text(
+                "```sh\n"
+                "npm run build \\\n"
+                "  --prefix tools\n"
+                "npm run missing \\\n"
+                "  --prefix tools\n"
+                "make \\\n"
+                "  -C tools missing-target\n"
+                "python \\\n"
+                "  scripts/missing.py\n"
+                "````\n",
+                encoding="utf-8")
+
+            result = DOCS_DRIFT.build(repo, [
+                "package.json", "tools/package.json", "tools/Makefile",
+                "scripts/existing.py", "README.md",
+            ])
+
+            command_findings = [
+                finding for finding in result["findings"]
+                if finding["kind"] in {
+                    "missing-script", "missing-make-target", "missing-script-file"
+                }
+            ]
+            self.assertEqual(
+                [(finding["kind"], finding["line"]) for finding in command_findings],
+                [("missing-script", 4), ("missing-make-target", 6),
+                 ("missing-script-file", 8)],
+            )
+
+    def test_nested_workspace_selectors_are_scoped_to_effective_command_directory(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            app = repo / "packages" / "app"
+            nested = app / "nested" / "shared"
+            outer = repo / "packages" / "shared"
+            nested.mkdir(parents=True)
+            outer.mkdir(parents=True)
+            (repo / "package.json").write_text(
+                '{"workspaces": ["packages/*"]}\n', encoding="utf-8")
+            (app / "package.json").write_text(
+                '{"name": "@acme/app", "workspaces": ["nested/*"]}\n',
+                encoding="utf-8")
+            (nested / "package.json").write_text(
+                '{"name": "@acme/shared", "scripts": {"nested-build": "build"}}\n',
+                encoding="utf-8")
+            (outer / "package.json").write_text(
+                '{"name": "@acme/shared", "scripts": {"outer-build": "build"}}\n',
+                encoding="utf-8")
+            doc = repo / "README.md"
+            doc.write_text(
+                "```sh\n"
+                "npm --prefix packages/app --workspace nested/shared run outer-build\n"
+                "cd packages/app\n"
+                "npm --workspace nested/shared run outer-build\n"
+                "npm --workspace @acme/shared run outer-build\n"
+                "````\n",
+                encoding="utf-8")
+
+            result = DOCS_DRIFT.build(repo, [
+                "package.json", "packages/app/package.json",
+                "packages/app/nested/shared/package.json",
+                "packages/shared/package.json", "README.md",
+            ])
+
+            missing_scripts = [
+                finding for finding in result["findings"]
+                if finding["kind"] == "missing-script"
+            ]
+            self.assertEqual([finding["line"] for finding in missing_scripts], [2, 4, 5])
+
     def test_npm_workspace_name_selector_uses_workspace_scripts(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
             workspace = repo / "packages" / "web"
             workspace.mkdir(parents=True)
             (repo / "package.json").write_text(
-                '{"scripts": {"root-only": "root"}}\n', encoding="utf-8")
+                '{"workspaces": ["packages/*"], "scripts": {"root-only": "root"}}\n',
+                encoding="utf-8")
             (workspace / "package.json").write_text(
                 '{"name": "@acme/web", "scripts": {"build": "build"}}\n',
                 encoding="utf-8")
@@ -1694,7 +1782,8 @@ npm run build
             api = repo / "packages" / "api"
             web.mkdir(parents=True)
             api.mkdir(parents=True)
-            (repo / "package.json").write_text('{}\n', encoding="utf-8")
+            (repo / "package.json").write_text(
+                '{"workspaces": ["packages/*"]}\n', encoding="utf-8")
             (web / "package.json").write_text(
                 '{"name": "@acme/web", "scripts": {"build": "build"}}\n',
                 encoding="utf-8")
@@ -1728,7 +1817,8 @@ npm run build
             api = repo / "packages" / "api"
             web.mkdir(parents=True)
             api.mkdir(parents=True)
-            (repo / "package.json").write_text('{}\n', encoding="utf-8")
+            (repo / "package.json").write_text(
+                '{"workspaces": ["packages/*"]}\n', encoding="utf-8")
             (web / "package.json").write_text(
                 '{"name": "@acme/web", "scripts": {"build": "build"}}\n',
                 encoding="utf-8")
@@ -1758,7 +1848,8 @@ npm run build
             api = repo / "packages" / "api"
             web.mkdir(parents=True)
             api.mkdir(parents=True)
-            (repo / "package.json").write_text('{}\n', encoding="utf-8")
+            (repo / "package.json").write_text(
+                '{"workspaces": ["packages/*"]}\n', encoding="utf-8")
             (web / "package.json").write_text(
                 '{"name": "@acme/web", "scripts": {"build": "build"}}\n',
                 encoding="utf-8")
