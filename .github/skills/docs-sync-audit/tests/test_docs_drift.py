@@ -517,6 +517,64 @@ continues inside this code span`
                 "missing-make-target",
                 {finding["kind"] for finding in result["findings"]})
 
+    def test_make_pushd_popd_restores_root_makefile_for_later_command(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            nested = repo / "packages" / "web"
+            nested.mkdir(parents=True)
+            (repo / "Makefile").write_text("root-only:\n", encoding="utf-8")
+            (nested / "Makefile").write_text("web-only:\n", encoding="utf-8")
+            doc = repo / "README.md"
+            doc.write_text(
+                "```sh\n"
+                "pushd packages/web\n"
+                "make web-only\n"
+                "popd\n"
+                "make root-only\n"
+                "```\n", encoding="utf-8")
+
+            result = DOCS_DRIFT.build(
+                repo, ["Makefile", "packages/web/Makefile", "README.md"])
+
+            self.assertNotIn(
+                "missing-make-target",
+                {finding["kind"] for finding in result["findings"]})
+
+    def test_dynamic_pushd_skips_npm_and_make_checks_until_restored(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            nested = repo / "packages" / "web"
+            nested.mkdir(parents=True)
+            (repo / "package.json").write_text(
+                '{"scripts": {"root-only": "root"}}\n', encoding="utf-8")
+            (nested / "package.json").write_text(
+                '{"scripts": {"web-only": "web"}}\n', encoding="utf-8")
+            (repo / "Makefile").write_text("root-only:\n", encoding="utf-8")
+            (nested / "Makefile").write_text("web-only:\n", encoding="utf-8")
+            doc = repo / "README.md"
+            doc.write_text(
+                "```sh\n"
+                "pushd packages/web\n"
+                "pushd \"$WORK_DIR\"\n"
+                "npm run unknown\n"
+                "make unknown\n"
+                "popd\n"
+                "npm run web-only\n"
+                "make web-only\n"
+                "popd\n"
+                "npm run root-only\n"
+                "make root-only\n"
+                "```\n", encoding="utf-8")
+
+            result = DOCS_DRIFT.build(repo, [
+                "package.json", "packages/web/package.json", "Makefile",
+                "packages/web/Makefile", "README.md",
+            ])
+
+            kinds = {finding["kind"] for finding in result["findings"]}
+            self.assertNotIn("missing-script", kinds)
+            self.assertNotIn("missing-make-target", kinds)
+
     def test_empty_root_makefile_is_an_inventory_for_unknown_targets(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
@@ -738,6 +796,31 @@ npm run build
 
             result = DOCS_DRIFT.build(
                 repo, ["package.json", "packages/web/package.json", "docs/commands.md"])
+
+            self.assertNotIn(
+                "missing-script",
+                {finding["kind"] for finding in result["findings"]})
+
+    def test_npm_pushd_popd_restores_root_package_for_later_command(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            nested = repo / "packages" / "web"
+            nested.mkdir(parents=True)
+            (repo / "package.json").write_text(
+                '{"scripts": {"root-only": "root"}}\n', encoding="utf-8")
+            (nested / "package.json").write_text(
+                '{"scripts": {"web-only": "web"}}\n', encoding="utf-8")
+            doc = repo / "README.md"
+            doc.write_text(
+                "```sh\n"
+                "pushd packages/web\n"
+                "npm run web-only\n"
+                "popd\n"
+                "npm run root-only\n"
+                "```\n", encoding="utf-8")
+
+            result = DOCS_DRIFT.build(
+                repo, ["package.json", "packages/web/package.json", "README.md"])
 
             self.assertNotIn(
                 "missing-script",

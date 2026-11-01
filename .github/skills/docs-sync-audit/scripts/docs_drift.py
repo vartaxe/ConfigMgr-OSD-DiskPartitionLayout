@@ -330,20 +330,48 @@ def shell_tokens(command: str) -> list[str]:
     return tokens
 
 
+def shell_directory_change(
+        repo: Path, command: str, cwd: Path | None,
+        directory_stack: list[Path | None]
+        ) -> tuple[bool, Path | None]:
+    """Track cd/pushd/popd while keeping unresolved pushd state unknown."""
+    command = command.strip()
+    if POPD_COMMAND.fullmatch(command):
+        if directory_stack:
+            cwd = directory_stack.pop()
+        return True, cwd
+
+    cd_match = CD_COMMAND.match(command)
+    if not cd_match:
+        return False, cwd
+
+    target = cd_match.group(2).strip()
+    if command.startswith("pushd"):
+        directory_stack.append(cwd)
+        if cwd is not None:
+            cwd = script_directory_from(repo, cwd, target)
+    elif cwd is not None:
+        cwd = directory_from(repo, cwd, target)
+    return True, cwd
+
+
 def npm_commands_in_line(repo: Path, npm: dict[str, set[str]], line: str,
-                         cwd: Path,
-                         workspace_names: dict[str, set[str]] | None = None
-                         ) -> tuple[Path, list[tuple[str, list[set[str]], bool]]]:
+                         cwd: Path | None,
+                         workspace_names: dict[str, set[str]] | None = None,
+                         directory_stack: list[Path | None] | None = None
+                         ) -> tuple[Path | None, list[tuple[str, list[set[str]], bool]]]:
     """Track shell directory changes and retain each selected workspace inventory."""
     commands = []
+    directory_stack = directory_stack if directory_stack is not None else []
     for segment in SHELL_SEPARATOR.split(line):
-        cd_match = CD_COMMAND.match(segment.strip())
-        if cd_match:
-            cwd = directory_from(repo, cwd, cd_match.group(2).strip())
+        changed, cwd = shell_directory_change(repo, segment, cwd, directory_stack)
+        if changed:
             continue
         tokens = shell_tokens(segment)
         for manager_index, token in enumerate(tokens):
             if not CMD_NPM_MANAGER.fullmatch(token):
+                continue
+            if cwd is None:
                 continue
             arguments = tokens[manager_index + 1:]
             if "--" in arguments:
@@ -407,19 +435,22 @@ def npm_commands_in_line(repo: Path, npm: dict[str, set[str]], line: str,
 
 
 def make_commands_in_line(
-        repo: Path, make: dict[str, set[str]], line: str, cwd: Path,
-        files: set[str] | None = None
-        ) -> tuple[Path, list[tuple[str, set[str]]]]:
+        repo: Path, make: dict[str, set[str]], line: str, cwd: Path | None,
+        files: set[str] | None = None,
+        directory_stack: list[Path | None] | None = None
+        ) -> tuple[Path | None, list[tuple[str, set[str]]]]:
     """Track shell directory changes and resolve Make options before collecting targets."""
     commands = []
+    directory_stack = directory_stack if directory_stack is not None else []
     for segment in SHELL_SEPARATOR.split(line):
-        cd_match = CD_COMMAND.match(segment.strip())
-        if cd_match:
-            cwd = directory_from(repo, cwd, cd_match.group(2).strip())
+        changed, cwd = shell_directory_change(repo, segment, cwd, directory_stack)
+        if changed:
             continue
         tokens = shell_tokens(segment)
         for make_index, token in enumerate(tokens):
             if token != "make":
+                continue
+            if cwd is None:
                 continue
             arguments = tokens[make_index + 1:]
             make_cwd = cwd
@@ -952,13 +983,16 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
         # 1. commands
         for block in fenced_block_groups(text):
             npm_cwd = documentation_npm_cwd(doc, npm_scripts)
+            npm_directory_stack: list[Path | None] = []
             make_cwd = Path(".")
+            make_directory_stack: list[Path | None] = []
             script_cwd = Path(".")
             script_directory_stack: list[Path] = []
             explicit_script_directory_change = False
             for lineno, line in block:
                 npm_cwd, npm_calls = npm_commands_in_line(
-                    repo, npm_scripts, line, npm_cwd, workspace_names)
+                    repo, npm_scripts, line, npm_cwd, workspace_names,
+                    npm_directory_stack)
                 unique_npm_calls = {
                     (script, tuple(frozenset(scripts) for scripts in inventories), if_present)
                     for script, inventories, if_present in npm_calls
@@ -976,7 +1010,8 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
                             f"documents `{script}`, which is not a script in every applicable "
                             f"package.json.{hint}", source="package.json")
                 make_cwd, make_calls = make_commands_in_line(
-                    repo, make_targets, line, make_cwd, file_set)
+                    repo, make_targets, line, make_cwd, file_set,
+                    make_directory_stack)
                 for target, applicable_targets in set(
                         (target, frozenset(targets)) for target, targets in make_calls):
                     if target not in applicable_targets:
