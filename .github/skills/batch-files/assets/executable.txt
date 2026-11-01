@@ -20,13 +20,13 @@ REM myTool
 ::   > myTool "C:\data\input.txt" "C:\data\output.txt"
 ::   > myTool --verbose "C:\data\input.txt"
 ::
-set "_helpLinesMyTool=19"
+set "_helpLinesMyTool=22"
 
 :: ========================================================================
 :: TEMPLATE INSTRUCTIONS
 :: 1. Find/Replace "myTool" with your executable name (camelCase).
 :: 2. Find/Replace "MyTool" with your executable name (PascalCase).
-:: 3. Update the help block above (lines 2-19) for your tool.
+:: 3. Update the help block above (lines 5-22) for your tool.
 :: 4. Implement your logic in :_runMyTool.
 :: 5. Add any new variables to :_removeBatchVariablesMyTool.
 :: ========================================================================
@@ -140,7 +140,7 @@ goto :eof
 
 :_showHelpMyTool
     echo:
-    for /f "skip=1 delims=" %%a in ('findstr /n "^" "%~f0"') do (
+    for /f "skip=3 delims=" %%a in ('findstr /n "^" "%~f0"') do (
         set "_line=%%a"
         setlocal EnableDelayedExpansion
         for /f "delims=:" %%n in ("!_line!") do set "_lineNum=%%n"

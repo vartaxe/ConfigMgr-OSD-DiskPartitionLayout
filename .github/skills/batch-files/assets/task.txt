@@ -20,13 +20,13 @@ REM myTask
 ::   > myTask "C:\data\reports"
 ::     - Run the task against a specific target directory.
 ::
-set "_helpLinesMyTask=20"
+set "_helpLinesMyTask=22"
 
 :: ========================================================================
 :: TEMPLATE INSTRUCTIONS
 :: 1. Find/Replace "myTask" with your task name (camelCase).
 :: 2. Find/Replace "MyTask" with your task name (PascalCase).
-:: 3. Update the help block above (lines 2-20) for your task.
+:: 3. Update the help block above (lines 4-22) for your task.
 :: 4. Implement your logic in :_runMyTask.
 :: 5. Add any new variables to :_removeBatchVariablesMyTask.
 :: ========================================================================
@@ -156,7 +156,7 @@ goto :eof
 
 :_showHelpMyTask
     echo:
-    for /f "skip=1 tokens=* delims=" %%a in ('findstr /n "^" "%~f0"') do (
+    for /f "skip=2 tokens=* delims=" %%a in ('findstr /n "^" "%~f0"') do (
         set "_line=%%a"
         setlocal EnableDelayedExpansion
         for /f "tokens=1 delims=:" %%n in ("!_line!") do set "_lineNum=%%n"

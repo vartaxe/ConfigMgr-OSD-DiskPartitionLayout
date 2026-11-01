@@ -9,6 +9,11 @@ BeforeAll {
 }
 
 Describe 'GitHub release tag selection' {
+    It 'checks the exact fully qualified remote tag ref' {
+        $script:SkillContent | Should -Match 'git ls-remote --exit-code --refs origin "refs/tags/\$PREV_TAG"'
+        $script:SkillContent | Should -Not -Match 'git ls-remote --tags origin \| grep "refs/tags/\$PREV_TAG\$"'
+    }
+
     It 'compares stable numeric versions and retains original tags in both shell examples' {
         $script:BashPattern | Should -Not -BeNullOrEmpty
         $script:PowerShellPattern | Should -Not -BeNullOrEmpty

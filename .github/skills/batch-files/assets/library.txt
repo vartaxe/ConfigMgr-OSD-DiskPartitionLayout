@@ -122,6 +122,12 @@ goto _removeBatchVariablesMyLib
         set "_valMyLib=!_valMyLib:~0,-1!"
         goto _trimTrailingMyLib
     )
+    set "_quoteFreeMyLib=!_valMyLib:"=!"
+    if not "!_valMyLib!"=="!_quoteFreeMyLib!" (
+        echo ERROR: trimWhitespace does not support double quotes in named variable values.
+        endlocal
+        exit /b 1
+    )
     setlocal DisableDelayedExpansion
     set "_valMyLib=%_valMyLib%"
     if "%_delayedExpansionMyLib%"=="1" set "_valMyLib=%_valMyLib:^=^^%"
@@ -161,6 +167,12 @@ goto :eof
     set "_valMyLib=!_valMyLib:X=x!"
     set "_valMyLib=!_valMyLib:Y=y!"
     set "_valMyLib=!_valMyLib:Z=z!"
+    set "_quoteFreeMyLib=!_valMyLib:"=!"
+    if not "!_valMyLib!"=="!_quoteFreeMyLib!" (
+        echo ERROR: toLower does not support double quotes in named variable values.
+        endlocal
+        exit /b 1
+    )
     setlocal DisableDelayedExpansion
     set "_valMyLib=%_valMyLib%"
     if "%_delayedExpansionMyLib%"=="1" set "_valMyLib=%_valMyLib:^=^^%"

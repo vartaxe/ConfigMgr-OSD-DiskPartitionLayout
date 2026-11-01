@@ -153,6 +153,22 @@ Describe 'Batch library padRight' {
         $result.ExitCode | Should -Be 0
     }
 
+    It 'rejects double quotes before returning a trimmed named-variable value' {
+        $result = Invoke-BatchLibraryWithDelayedExpansion -Function 'trimWhitespace' `
+            -Value 'A"B' -ExpectedValue 'A"B' -NamedVariable
+        $result.Output | Should -Match 'ERROR: trimWhitespace does not support double quotes'
+        $result.Output | Should -Match 'DELAYED_EXPANSION_RESTORED'
+        $result.ExitCode | Should -Be 1
+    }
+
+    It 'rejects double quotes before returning a converted named-variable value' {
+        $result = Invoke-BatchLibraryWithDelayedExpansion -Function 'toLower' `
+            -Value 'A"B' -ExpectedValue 'a"B' -NamedVariable
+        $result.Output | Should -Match 'ERROR: toLower does not support double quotes'
+        $result.Output | Should -Match 'DELAYED_EXPANSION_RESTORED'
+        $result.ExitCode | Should -Be 1
+    }
+
     It 'preserves mixed caret and exclamation marks in named-variable outputs' {
         $result = Invoke-BatchLibraryWithDelayedExpansion -Function 'trimWhitespace' `
             -Value '  A^!B  ' -ExpectedValue 'A^!B' -NamedVariable

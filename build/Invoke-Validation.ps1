@@ -67,9 +67,10 @@ if ($null -eq $Result -or $Result.Result -ne 'Passed' -or $Result.TotalCount -eq
 $Expected = @{}
 Get-ChildItem -LiteralPath $Root -File -Recurse -Force |
     Where-Object {
-        $_.FullName -notlike "$Root\.git\*" -and
-        $_.Name -ne 'CHECKSUMS.txt'
-    } |
+    $_.FullName -notlike "$Root\.git" -and
+    $_.FullName -notlike "$Root\.git\*" -and
+    $_.Name -ne 'CHECKSUMS.txt'
+} |
     ForEach-Object {
         $RelativePath = $_.FullName.Substring($Root.Length + 1).Replace('\', '/')
         $Expected[$RelativePath] = $_.FullName

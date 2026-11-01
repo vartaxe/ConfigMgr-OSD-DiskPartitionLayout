@@ -114,6 +114,19 @@ BeforeAll {
             ParentTempPath = $parentTempPath
         }
     }
+
+    function Invoke-TaskHelp {
+        $taskPath = Join-Path $TestDrive ("task-help-{0}.cmd" -f [guid]::NewGuid().ToString('N'))
+        $task = [IO.File]::ReadAllText($script:TaskTemplatePath, [Text.Encoding]::UTF8)
+        $task = [regex]::Replace($task, "`r`n|`r|`n", "`r`n")
+        [IO.File]::WriteAllText($taskPath, $task, [Text.Encoding]::ASCII)
+        $output = @(& $env:ComSpec /d /c ('call "{0}" --help' -f $taskPath) 2>&1 |
+            ForEach-Object { "$_" })
+        [pscustomobject]@{
+            Output = $output -join "`n"
+            ExitCode = $LASTEXITCODE
+        }
+    }
 }
 
 Describe 'Batch task temporary-directory cleanup' {
@@ -159,5 +172,15 @@ Describe 'Batch task temporary-directory cleanup' {
                 Remove-Item -LiteralPath $result.ParentTempPath -Recurse -Force -ErrorAction SilentlyContinue
             }
         }
+    }
+
+    It 'prints the complete help block without leaking template setup lines' {
+        $result = Invoke-TaskHelp
+        $result.ExitCode | Should -Be 0
+        $result.Output | Should -Match 'usage: myTask'
+        $result.Output | Should -Match 'Run the default task'
+        $result.Output | Should -Match 'specific target directory'
+        $result.Output | Should -Not -Match 'setlocal DisableDelayedExpansion'
+        $result.Output | Should -Not -Match 'helpLinesMyTask'
     }
 }

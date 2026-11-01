@@ -32,6 +32,19 @@ BeforeAll {
             ParentTempPath = $parentTempPath
         }
     }
+
+    function Invoke-ExecutableHelp {
+        $toolPath = Join-Path $TestDrive ("tool-help-{0}.cmd" -f [guid]::NewGuid().ToString('N'))
+        $tool = [IO.File]::ReadAllText($script:ExecutableTemplatePath, [Text.Encoding]::UTF8)
+        $tool = [regex]::Replace($tool, "`r`n|`r|`n", "`r`n")
+        [IO.File]::WriteAllText($toolPath, $tool, [Text.Encoding]::ASCII)
+        $output = @(& $env:ComSpec /d /c ('call "{0}" --help' -f $toolPath) 2>&1 |
+            ForEach-Object { "$_" })
+        [pscustomobject]@{
+            Output = $output -join "`n"
+            ExitCode = $LASTEXITCODE
+        }
+    }
 }
 
 Describe 'Batch executable temporary-directory ownership' {
@@ -49,5 +62,15 @@ Describe 'Batch executable temporary-directory ownership' {
                 Remove-Item -LiteralPath $result.ParentTempPath -Recurse -Force -ErrorAction SilentlyContinue
             }
         }
+    }
+
+    It 'prints the complete help block without leaking template setup lines' {
+        $result = Invoke-ExecutableHelp
+        $result.ExitCode | Should -Be 0
+        $result.Output | Should -Match 'usage: myTool'
+        $result.Output | Should -Match 'examples:'
+        $result.Output | Should -Match 'myTool --verbose'
+        $result.Output | Should -Not -Match 'local DisableDelayedExpansion'
+        $result.Output | Should -Not -Match 'helpLinesMyTool'
     }
 }

@@ -134,11 +134,13 @@ When a stable version tag was found, verify it exists on the remote (not just lo
 
 ```bash
 if [ "$PREV_TAG" != "(none)" ]; then
-  git ls-remote --tags origin | grep "refs/tags/$PREV_TAG$"
+  git ls-remote --exit-code --refs origin "refs/tags/$PREV_TAG" >/dev/null
 fi
 ```
 
-If the remote check returns nothing for a real tag, warn the user that it appears
+The fully qualified ref query checks the exact tag name; `--exit-code` makes a
+missing remote tag return nonzero, and `--refs` excludes peeled annotated-tag
+records. If the command fails for a real tag, warn the user that it appears
 local-only and has not been pushed. No remote tag check is needed when `PREV_TAG`
 is `(none)`.
 

@@ -435,6 +435,8 @@ Keep delayed expansion disabled while forwarding `%*` and reading `%~1`/`%~2`; e
 ```bat
 @echo off
 setlocal DisableDelayedExpansion
+set "_HELP=0"
+set "_TARGET="
 
 REM ============================================================
 REM  Script: example.bat
