@@ -28,10 +28,20 @@ set "_helpLinesMyLib=17"
 :: ========================================================================
 
 :: Route to the requested function.
+set "_delayedExpansionMyLib=0"
+if "!_delayedExpansionMyLib!"=="0" set "_delayedExpansionMyLib=1"
+setlocal DisableDelayedExpansion
 set "_funcMyLib=%~1"
 set "_argOneMyLib=%~2"
 set "_argTwoMyLib=%~3"
 set "_argThreeMyLib=%~4"
+if "%_delayedExpansionMyLib%"=="1" (
+    set "_funcMyLib=%_funcMyLib:!=^!%"
+    set "_argOneMyLib=%_argOneMyLib:!=^!%"
+    set "_argTwoMyLib=%_argTwoMyLib:!=^!%"
+    set "_argThreeMyLib=%_argThreeMyLib:!=^!%"
+)
+endlocal & set "_funcMyLib=%_funcMyLib%" & set "_argOneMyLib=%_argOneMyLib%" & set "_argTwoMyLib=%_argTwoMyLib%" & set "_argThreeMyLib=%_argThreeMyLib%"
 
 call :_setSuccessMyLib
 set "_resultMyLib=0"
@@ -111,6 +121,8 @@ goto _removeBatchVariablesMyLib
         goto _trimTrailingMyLib
     )
     setlocal DisableDelayedExpansion
+    set "_valMyLib=%_valMyLib%"
+    if "%_delayedExpansionMyLib%"=="1" set "_valMyLib=%_valMyLib:!=^!%"
     endlocal & endlocal & set "%_argOneMyLib%=%_valMyLib%"
 goto :eof
 
@@ -146,7 +158,10 @@ goto :eof
     set "_valMyLib=!_valMyLib:X=x!"
     set "_valMyLib=!_valMyLib:Y=y!"
     set "_valMyLib=!_valMyLib:Z=z!"
-    endlocal & set "%_argOneMyLib%=%_valMyLib%"
+    setlocal DisableDelayedExpansion
+    set "_valMyLib=%_valMyLib%"
+    if "%_delayedExpansionMyLib%"=="1" set "_valMyLib=%_valMyLib:!=^!%"
+    endlocal & endlocal & set "%_argOneMyLib%=%_valMyLib%"
 goto :eof
 
 :_getTimestampMyLib
@@ -166,7 +181,10 @@ goto :eof
     REM Parse time — replace leading space with 0 for single-digit hours.
     set "_tmMyLib=%TIME: =0%"
     set "_stampMyLib=!_stampMyLib!_!_tmMyLib:~0,2!-!_tmMyLib:~3,2!-!_tmMyLib:~6,2!"
-    endlocal & set "%_argOneMyLib%=%_stampMyLib%"
+    setlocal DisableDelayedExpansion
+    set "_stampMyLib=%_stampMyLib%"
+    if "%_delayedExpansionMyLib%"=="1" set "_stampMyLib=%_stampMyLib:!=^!%"
+    endlocal & endlocal & set "%_argOneMyLib%=%_stampMyLib%"
 goto :eof
 
 :_logMessageMyLib
@@ -191,7 +209,6 @@ goto :eof
     REM Pad a string to a given width with trailing spaces.
     REM   %_argOneMyLib% = the string to pad
     REM   %_argTwoMyLib% = desired total width
-    if not defined _argOneMyLib goto :eof
     if not defined _argTwoMyLib goto :eof
     setlocal EnableDelayedExpansion
     set "_widthMyLib=!_argTwoMyLib!"
@@ -212,6 +229,7 @@ goto :eof
     )
     set "_valMyLib=!_argOneMyLib!"
     set "_padMyLib=!_valMyLib!"
+    if not defined _padMyLib set "_padMyLib= "
 :_padRightAddSpacesMyLib
     if not "!_padMyLib:~%_widthMyLib%,1!"=="" goto _padRightFinishMyLib
     set "_padMyLib=!_padMyLib!                                                  "
@@ -260,6 +278,7 @@ goto :eof
     set _argOneMyLib=
     set _argTwoMyLib=
     set _argThreeMyLib=
+    set _delayedExpansionMyLib=
     set _resultMyLib=
     set _valMyLib=
     REM Append new variables above this line.

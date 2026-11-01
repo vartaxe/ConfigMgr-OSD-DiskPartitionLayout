@@ -26,4 +26,27 @@ Describe 'GitHub release tag selection' {
             }
         }
     }
+
+    It 'keeps release-metadata discovery and version confirmation on the no-tag path' {
+        $noTagSection = [regex]::Match(
+            $script:SkillContent,
+            '(?s)- If \*\*no tags exist at all\*\*.*?(?=\r?\n- If the tag does not point)'
+        ).Value
+        $noTagSection | Should -Match 'propose `1\.0\.0`'
+        $noTagSection | Should -Match 'release-metadata and automation discovery in Step 3d'
+        $noTagSection | Should -Match 'wait for the owner''s\s+confirmation'
+        $noTagSection | Should -Not -Match 'go straight to Step 5'
+
+        $stepFour = [regex]::Match(
+            $script:SkillContent,
+            '(?s)### Step 4 - Determine the next SemVer version.*?(?=\r?\n---)'
+        ).Value
+        $stepFour | Should -Match 'When `PREV_TAG` is `\(none\)`'
+        $stepFour | Should -Match 'Wait for confirmation before proceeding'
+        $stepFive = [regex]::Match(
+            $script:SkillContent,
+            '(?s)### Step 5 - Create the release branch.*?(?=\r?\n```bash)'
+        ).Value
+        $stepFive | Should -Match 'Only after the owner has explicitly confirmed'
+    }
 }

@@ -10,15 +10,23 @@ trigger.
 | --- | --- | --- | --- | --- |
 | `push` | Repo collaborators | read/write | yes | Low — trusted authors |
 | `pull_request` (same-repo branch) | Collaborators | read/write | yes | Low |
-| `pull_request` (from a fork) | **Anyone** | **read-only** | **no** | Low by design — even malicious code can't steal anything |
-| `pull_request_target` | **Anyone with a fork** | **read/write** | **yes** | **High** — runs in base-repo context |
-| `workflow_run` | Fires after another workflow | **read/write** | **yes** | **High** |
-| `issue_comment`, `issues` | **Anyone** | **read/write** | **yes** | **High** |
+| `pull_request` (from a fork) | **Anyone** | Usually read-only* | Usually no* | Conditional — verify settings and runner isolation |
+| `pull_request_target` | **Anyone with a fork** | Depends on effective permissions* | May be available* | **High** — base-repo context; assess code execution and runner |
+| `workflow_run` | Fires after another workflow | Depends on effective permissions* | May be available* | **High** |
+| `issue_comment`, `issues` | **Anyone** | Depends on effective permissions* | May be available* | **High** |
 
-The trap: `pull_request` from a fork is *safe* because GitHub deliberately strips the token down
-and withholds secrets. Maintainers who find that "the secrets don't work on fork PRs" often switch
-to `pull_request_target` to get them back — and in doing so hand a write token and every secret to
-arbitrary contributors.
+*Effective `GITHUB_TOKEN` permissions are determined by workflow/job permissions and repository
+defaults. Repository fork-PR settings separately control whether fork-triggered workflows may receive
+write tokens or secrets; verify both rather than assuming defaults. Keep runner isolation distinct
+from these controls. Untrusted fork code is exempt from a finding based solely on execution only
+when it runs on an isolated runner with no exposed credentials/secrets or persistent resources. A
+persistent self-hosted runner may be compromised and affect later jobs regardless of token permissions
+or trigger type.
+
+The trap: Maintainers who find that "the secrets don't work on fork PRs" may switch to
+`pull_request_target` to get them back — exposing base-repository permissions and potentially secrets
+to workflows triggered by arbitrary contributors. Evaluate this exposure separately from runner
+compromise.
 
 ## Why `pull_request_target` Is Dangerous
 
@@ -54,7 +62,7 @@ Split responsibilities. An **unprivileged** workflow runs the untrusted code; a 
 workflow consumes only the trusted *output*.
 
 ```yaml
-# 1) Unprivileged: runs untrusted code, no secrets, read-only token
+# 1) Unprivileged: runs untrusted code; verify effective permissions, fork-PR settings, and runner isolation
 name: PR Build
 on: pull_request
 permissions:
@@ -99,4 +107,7 @@ jobs:
 * In a privileged workflow, **never** check out and execute PR/fork code.
 * If you only need to label, comment, or triage based on metadata, that is fine — just don't run
   the contributor's code.
-* Prefer `pull_request` (with its safe read-only/no-secrets defaults) whenever possible.
+* Prefer `pull_request` when possible, but verify effective token permissions, repository fork-PR
+  settings, and runner isolation separately. Only exempt fork-code execution on isolated runners
+  with no exposed credentials/secrets or persistent resources. Assess persistent self-hosted runner
+  compromise independently of token permissions or trigger type.

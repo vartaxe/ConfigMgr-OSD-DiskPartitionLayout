@@ -73,13 +73,14 @@ what the value actually is:
 | value is `$null` | `$x \| Should -BeNullOrEmpty` | `$x \| Should-BeNull` |
 | empty string | `'' \| Should -BeNullOrEmpty` | `'' \| Should-BeEmptyString` |
 | empty collection | `@() \| Should -BeNullOrEmpty` | `@() \| Should-BeCollection -Count 0` |
-| any falsy value | `$x \| Should -BeNullOrEmpty` | `$x \| Should-BeFalsy` |
-| not null | `$x \| Should -Not -BeNullOrEmpty` | `$x \| Should-NotBeNull` |
-| not empty string | `$x \| Should -Not -BeNullOrEmpty` | `$x \| Should-NotBeEmptyString` |
-| not null/empty/whitespace | `$x \| Should -Not -BeNullOrEmpty` | `$x \| Should-NotBeWhiteSpaceString` |
+| mixed/unknown value is null or empty | `$x \| Should -BeNullOrEmpty` | Keep the classic assertion; no single v6 equivalent preserves its accepted values. |
+| mixed/unknown value is not null or empty | `$x \| Should -Not -BeNullOrEmpty` | Keep the classic assertion; no single v6 equivalent preserves its accepted values. |
 
-When in doubt and the type is mixed, `Should-BeFalsy` / `Should-NotBeNull` are the
-closest broad equivalents — but a type-specific assertion gives a better message.
+`Should-BeFalsy` is not equivalent to `Should -BeNullOrEmpty`: it also accepts
+`$false` and `0`. `Should-NotBeNull` is not equivalent to
+`Should -Not -BeNullOrEmpty`: it also accepts empty strings and collections. Use a
+type-specific v6 assertion only when the value's type and the assertion preserve the
+classic check's null/empty behavior.
 
 ---
 

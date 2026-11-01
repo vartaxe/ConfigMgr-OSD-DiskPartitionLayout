@@ -136,8 +136,10 @@ and hasn't been pushed - they may want to push it before continuing.
   spelling for checkout and output. Equal numeric versions are resolved deterministically
   by tag-name order.
 - If **no tags exist at all**, treat `PREV_TAG` as `(none)`, set `PREV_SHA` to the
-  first commit, and default the new version to `1.0.0` (skip Step 4 versioning logic;
-  go straight to Step 5).
+  first commit, and propose `1.0.0` as the new version. Continue through Step 3,
+  including release-metadata and automation discovery in Step 3d. In Step 4, skip only
+  the bump calculation; still present `1.0.0` and its rationale and wait for the owner's
+  confirmation before proceeding.
 - If the tag does not point to a real commit (orphaned tag), fall back to
   `git rev-list --max-parents=0 HEAD` and warn the user.
 
@@ -255,9 +257,10 @@ When a release contains a mix, the **highest precedence wins**:
 `MAJOR > MINOR > PATCH`.
 
 Compute `NEXT_VERSION`:
-- Split `PREV_TAG` into `MAJOR.MINOR.PATCH` integers.
-- Apply the appropriate bump.
-- Format as `vMAJOR.MINOR.PATCH`.
+- When `PREV_TAG` is `(none)`, use the proposed first version `1.0.0` without running
+  bump calculation.
+- Otherwise, split `PREV_TAG` into `MAJOR.MINOR.PATCH` integers, apply the appropriate
+  bump, and format as `vMAJOR.MINOR.PATCH`.
 
 **Present the proposed version to the user** with a brief rationale that cites
 specific code findings, not just commit messages. Example:
@@ -273,7 +276,8 @@ Wait for confirmation before proceeding.
 
 ### Step 5 - Create the release branch
 
-Now that the version is confirmed, create the branch with the correct name from the start:
+Only after the owner has explicitly confirmed the proposed version in Step 4, create
+and push the branch with the correct name from the start:
 
 ```bash
 git checkout -b release/vX.Y.Z

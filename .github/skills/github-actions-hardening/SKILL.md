@@ -49,10 +49,15 @@ Follow these steps **in order** for every workflow reviewed.
 Read every `on:` trigger and classify the workflow's privilege:
 
 * `push`, `pull_request` (from same repo) → runs with the contributor's own trust
-* `pull_request` from a **fork** → runs with a **read-only** token, **no secrets** (safe by design)
+* `pull_request` from a **fork** → commonly gets a read-only token and no secrets, but verify
+  the workflow/job's effective token permissions and repository fork-PR settings; do not assume
+  those defaults.
 * `pull_request_target`, `workflow_run`, `issue_comment`, `issues` → run in the context of the
-  **base repository** with a **read/write token and full access to secrets**, but can be
-  **triggered by outside contributors**. These are the dangerous triggers.
+  **base repository** and may expose write permissions or secrets to workflows triggered by
+  outside contributors. Assess the actual permissions and secrets available.
+* Assess runner isolation separately from trigger and token permissions. Exempt fork-code execution
+  only on isolated runners with no exposed credentials/secrets or persistent resources; a persistent
+  self-hosted runner may be compromised regardless of trigger type or token permissions.
 
 Read `references/triggers-and-privilege.md` for the full trust matrix.
 
@@ -123,7 +128,7 @@ concrete before/after fix. Never auto-apply changes — present them for review.
 
 | Severity | Meaning | Example |
 | --- | --- | --- |
-| 🔴 CRITICAL | Token/secret theft or RCE reachable by an outside contributor | `pull_request_target` checking out and running fork code; `${{ github.event.* }}` in a `run:` on a privileged trigger |
+| 🔴 CRITICAL | Severe compromise reachable by an outside contributor, including token/secret theft, RCE, or persistent runner compromise | `pull_request_target` checking out and running fork code; attacker-controlled script input on a privileged workflow; fork code compromising a persistent self-hosted runner |
 | 🟠 HIGH | Exploitable supply-chain or scope problem | Third-party action on a mutable tag/branch; `write-all` permissions; injection sink on `issue_comment` |
 | 🟡 MEDIUM | Risk under conditions or chaining | Missing `permissions:` block; secret reachable by a non-fork PR author |
 | 🔵 LOW | Hardening gap, low direct risk | First-party action not SHA-pinned; `persist-credentials` left default on a non-privileged job |
@@ -135,8 +140,11 @@ concrete before/after fix. Never auto-apply changes — present them for review.
 * **Group by issue type**, not by file.
 * **Be exact** — quote the offending line and give the line location.
 * **Always** pair every CRITICAL/HIGH with a concrete corrected YAML snippet.
-* **Never** claim a fork `pull_request` is dangerous just because it runs untrusted code — it has
-  no secrets and a read-only token. Reserve CRITICAL for the privileged triggers.
+* Do not flag fork `pull_request` solely because it runs untrusted code when execution is isolated
+  and no credentials, secrets, or persistent resources are exposed. Verify effective token permissions,
+  repository fork-PR settings, and runner isolation as distinct controls. Assess potential persistent
+  self-hosted runner compromise independently of token permissions or trigger type; CRITICAL is not
+  reserved for privileged triggers.
 * If the workflow is already hardened, say so and list what was checked.
 
 ## Reference Files

@@ -85,11 +85,15 @@ These do **not** translate by a plain rename. Read each before converting:
    `Should-BeFalse` are **strict** (exactly `$true` / `$false`). To preserve the old
    loose behavior use `Should-BeTruthy` / `Should-BeFalsy`. Only use the strict ones
    when the value really is a boolean.
-3. **`BeNullOrEmpty` has no single equivalent.** Pick by intent: `$null` →
-   `Should-BeNull`; empty string → `Should-BeEmptyString`; empty collection →
-   `Should-BeCollection -Count 0`; broad "falsy" → `Should-BeFalsy`. The negation
-   `Should -Not -BeNullOrEmpty` similarly splits into `Should-NotBeNull` /
-   `Should-NotBeEmptyString` / `Should-NotBeWhiteSpaceString`.
+3. **`BeNullOrEmpty` has no single equivalent.** For a mixed or unknown type, keep
+   the classic assertion. For a known type, use a v6 assertion only when it preserves
+   the original null/empty behavior: `$null` → `Should-BeNull`, empty string →
+   `Should-BeEmptyString`, or empty collection → `Should-BeCollection -Count 0`.
+   Do not use `Should-BeFalsy` as a broad replacement; it also accepts `$false` and
+   `0`. The negated classic form also has no single equivalent:
+   `Should-NotBeNull` accepts empty strings and collections, so keep
+   `Should -Not -BeNullOrEmpty` for mixed or unknown types unless a type-specific
+   replacement preserves both checks.
 4. **Collections.** Classic `Should -Be` also compares arrays; the new `Should-Be` is
    a *value* assertion and **errors** if `-Expected` is a collection ("You provided a
    collection to the -Expected parameter"). Use `Should-BeCollection` to compare arrays.

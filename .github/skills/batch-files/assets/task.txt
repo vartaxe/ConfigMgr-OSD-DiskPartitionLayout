@@ -202,7 +202,13 @@ goto :eof
     set _checkParTwoMyTask=
     REM Append new variables above this line.
 
-    if "%_tmpDirCreatedMyTask%"=="1" if EXIST "%_tmpDirMyTask%" rmdir /S /Q "%_tmpDirMyTask%" >nul 2>nul
+    if "%_tmpDirCreatedMyTask%"=="1" if EXIST "%_tmpDirMyTask%" (
+        rmdir /S /Q "%_tmpDirMyTask%" >nul 2>nul
+        if EXIST "%_tmpDirMyTask%" (
+            echo ERROR: Could not remove temporary directory "%_tmpDirMyTask%". 1>&2
+            if "%_taskResultMyTask%"=="0" set "_taskResultMyTask=1"
+        )
+    )
     set _tmpDirMyTask=
     set _tmpDirCreatedMyTask=
     set _logMessageMyTask=

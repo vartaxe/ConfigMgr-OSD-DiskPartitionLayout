@@ -63,5 +63,7 @@ End with the explicit line:
 * Quote the exact offending line and give its location.
 * Explain risk in plain English — what an attacker actually does, not just the rule name.
 * Per-finding confidence: High / Medium / Low.
-* Don't inflate severity: a fork `pull_request` (read-only token, no secrets) running untrusted
-  code is not CRITICAL on its own.
+* Do not rate fork `pull_request` code execution as CRITICAL solely because it is untrusted.
+  Verify effective token permissions, repository fork-PR settings, and runner isolation; only
+  exempt execution on isolated runners with no exposed credentials/secrets or persistent resources.
+  Assess persistent self-hosted runner compromise independently of trigger type or token permissions.
