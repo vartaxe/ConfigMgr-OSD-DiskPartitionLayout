@@ -63,9 +63,13 @@ ENV_CODE_EXTS = CODE_EXTS | {".ps1", ".psm1", ".psd1"}
 
 FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 # Commands worth checking. Anything else in a fenced block is left alone.
-CMD_NPM = re.compile(
-    r"\b(?P<manager>npm|pnpm|yarn|bun)\b(?P<options>(?:\s+[^\s;&|]+)*)"
-    r"\s+run\s+(?P<script>[A-Za-z0-9:_.-]+)")
+CMD_NPM_MANAGER = re.compile(r"(?:npm|pnpm|yarn|bun)(?:\.cmd|\.exe)?", re.I)
+NPM_SCRIPT = re.compile(r"[A-Za-z0-9:_.-]+")
+NPM_PACKAGE_OPTIONS = {"--prefix", "--cwd", "--dir", "-C"}
+NPM_OPTIONS_WITH_VALUE = NPM_PACKAGE_OPTIONS | {
+    "--cache", "--globalconfig", "--location", "--loglevel", "--registry",
+    "--scope", "--script-shell", "--userconfig", "--workspace", "-w",
+}
 CMD_MAKE = re.compile(r"\bmake\s+([A-Za-z0-9_.-]+)")
 CMD_SCRIPT = re.compile(r"(?:^|\s)(\./[A-Za-z0-9_./-]+|(?:python3?|node|bash|sh|ruby)\s+([A-Za-z0-9_./-]+\.[A-Za-z0-9]+))")
 SHELL_SEPARATOR = re.compile(r"\s*(?:&&|\|\||;)\s*")
@@ -205,7 +209,7 @@ def fenced_block_groups(text: str) -> list[list[tuple[int, str]]]:
 
 def directory_from(repo: Path, current: Path, target: str) -> Path:
     """Resolve a documented cd/prefix directory without leaving the repository."""
-    target_path = Path(target)
+    target_path = Path(target.replace("\\", "/"))
     candidate = target_path if target_path.is_absolute() else repo / current / target_path
     try:
         return candidate.resolve().relative_to(repo.resolve())
@@ -233,29 +237,84 @@ def documentation_npm_cwd(doc: str, npm: dict[str, set[str]]) -> Path:
     return max(applicable, key=lambda directory: len(directory.parts)) if applicable else Path(".")
 
 
+def shell_tokens(command: str) -> list[str]:
+    """Split a shell command on unquoted whitespace while preserving path backslashes."""
+    tokens = []
+    token = []
+    quote = None
+    started = False
+    for char in command:
+        if quote:
+            if char == quote:
+                quote = None
+            else:
+                token.append(char)
+        elif char in {'"', "'"}:
+            quote = char
+            started = True
+        elif char.isspace():
+            if started:
+                tokens.append("".join(token))
+                token = []
+                started = False
+        else:
+            token.append(char)
+            started = True
+    if started:
+        tokens.append("".join(token))
+    return tokens
+
+
 def npm_commands_in_line(repo: Path, npm: dict[str, set[str]], line: str,
                          cwd: Path) -> tuple[Path, list[tuple[str, set[str]]]]:
-    """Track simple shell directory changes and resolve each npm command's package."""
+    """Track shell directory changes and resolve each npm run to its package."""
     commands = []
     for segment in SHELL_SEPARATOR.split(line):
         cd_match = CD_COMMAND.match(segment.strip())
         if cd_match:
             cwd = directory_from(repo, cwd, cd_match.group(2).strip())
             continue
-        for match in CMD_NPM.finditer(segment):
-            options = match.group("options").split()
+        tokens = shell_tokens(segment)
+        for manager_index, token in enumerate(tokens):
+            if not CMD_NPM_MANAGER.fullmatch(token):
+                continue
+            arguments = tokens[manager_index + 1:]
+            if "--" in arguments:
+                arguments = arguments[:arguments.index("--")]
+            run_index = None
+            i = 0
+            while i < len(arguments):
+                option = arguments[i]
+                if option in NPM_OPTIONS_WITH_VALUE:
+                    i += 2
+                    continue
+                if option.startswith(("--prefix=", "--cwd=", "--dir=")):
+                    i += 1
+                    continue
+                if option.startswith("-"):
+                    i += 1
+                    continue
+                if option == "run":
+                    run_index = i
+                break
+            if run_index is None or run_index + 1 >= len(arguments):
+                continue
+            script = arguments[run_index + 1]
+            if not NPM_SCRIPT.fullmatch(script):
+                continue
+
             prefix = None
             i = 0
-            while i < len(options):
-                option = options[i]
+            while i < len(arguments):
+                option = arguments[i]
                 if option.startswith(("--prefix=", "--cwd=", "--dir=")):
                     prefix = option.split("=", 1)[1]
-                elif option in {"--prefix", "--cwd", "--dir", "-C"} and i + 1 < len(options):
-                    prefix = options[i + 1]
+                elif option in NPM_PACKAGE_OPTIONS and i + 1 < len(arguments):
+                    prefix = arguments[i + 1]
                     i += 1
                 i += 1
             command_cwd = directory_from(repo, cwd, prefix) if prefix else cwd
-            commands.append((match.group("script"), npm_package_scripts(npm, command_cwd)))
+            commands.append((script, npm_package_scripts(npm, command_cwd)))
     return cwd, commands
 
 

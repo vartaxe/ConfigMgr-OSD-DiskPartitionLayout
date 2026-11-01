@@ -169,6 +169,40 @@ npm run build
             self.assertIn("build", missing_scripts[0]["detail"])
             self.assertEqual(missing_scripts[0]["line"], 15)
 
+    def test_npm_run_parser_handles_script_boundaries_and_quoted_prefixes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            npm = {
+                ".": {"cli", "migrate"},
+                "packages/web": {"build", "web-marker"},
+                "packages/web app": {"build", "space-marker"},
+                "run": {"cli", "prefix-marker"},
+            }
+            cases = [
+                ("npm run cli -- run migrate", "cli", {"cli", "migrate"}),
+                ("npm --prefix run run cli", "cli", {"cli", "prefix-marker"}),
+                ("npm --loglevel info run build", "build",
+                 {"cli", "migrate"}),
+                ('npm --prefix "packages/web" run build', "build",
+                 {"build", "web-marker"}),
+                ("npm run build --prefix packages/web", "build",
+                 {"build", "web-marker"}),
+                ('npm run build --prefix "packages/web app"', "build",
+                 {"build", "space-marker"}),
+                (r'npm --prefix "packages\web app" run build', "build",
+                 {"build", "space-marker"}),
+                ('npm --prefix "packages/web" run build --prefix "packages/web app"',
+                 "build", {"build", "space-marker"}),
+                ('npm --prefix "packages/web app" run build -- --prefix packages/web',
+                 "build", {"build", "space-marker"}),
+            ]
+            for command, expected_script, expected_scripts in cases:
+                with self.subTest(command=command):
+                    _, calls = DOCS_DRIFT.npm_commands_in_line(
+                        repo, npm, command, Path("."))
+                    self.assertEqual(len(calls), 1)
+                    self.assertEqual(calls[0], (expected_script, expected_scripts))
+
     def test_tilde_fenced_commands_are_checked(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)

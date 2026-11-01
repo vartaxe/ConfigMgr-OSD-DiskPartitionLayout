@@ -175,7 +175,8 @@ goto :eof
     if not defined _argOneMyLib goto :eof
     if not defined _argTwoMyLib goto :eof
     setlocal EnableDelayedExpansion
-    set "_widthMyLib=%_argTwoMyLib%"
+    set "_widthMyLib=!_argTwoMyLib!"
+    if not "!_widthMyLib:;=!"=="!_widthMyLib!" goto _padRightInvalidWidthMyLib
     set "_invalidWidthMyLib="
     for /f "delims=0123456789" %%a in ("!_widthMyLib!") do set "_invalidWidthMyLib=1"
     if defined _invalidWidthMyLib goto _padRightInvalidWidthMyLib
@@ -190,7 +191,7 @@ goto :eof
         endlocal
         goto :eof
     )
-    set "_valMyLib=%_argOneMyLib%"
+    set "_valMyLib=!_argOneMyLib!"
     set "_padMyLib=!_valMyLib!"
 :_padRightAddSpacesMyLib
     if not "!_padMyLib:~%_widthMyLib%,1!"=="" goto _padRightFinishMyLib
