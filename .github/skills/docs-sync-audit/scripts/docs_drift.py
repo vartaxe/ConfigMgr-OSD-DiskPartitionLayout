@@ -71,6 +71,8 @@ MD_LINK = re.compile(r"!?\[[^\]]*\]\(([^)\s]+)")
 BACKTICK = re.compile(r"`([^`\n]+)`")
 INLINE_CODE = re.compile(r"(`+).*?\1")
 MARKDOWN_FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
+FROM_IMPORT_SPEC = re.compile(
+    r"^\s*from\s+([A-Za-z0-9_.]+)\s+import\s+([^#\n]+)", re.M)
 
 # Placeholder shapes that are not meant to resolve.
 PLACEHOLDER = re.compile(
@@ -115,9 +117,20 @@ def run_git(args: list[str], cwd: Path) -> str | None:
 
 
 def list_files(repo: Path) -> list[str]:
-    out = run_git(["ls-files", "--cached", "--other", "--exclude-standard"], repo)
-    if out is not None and out.strip():
-        return sorted(x.strip() for x in out.splitlines() if x.strip())
+    git = shutil.which("git")
+    if git is not None:
+        try:
+            p = subprocess.run(
+                [git, "ls-files", "--cached", "--other", "--exclude-standard", "-z"],
+                cwd=str(repo), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                timeout=GIT_TIMEOUT)
+        except (OSError, subprocess.SubprocessError) as exc:
+            warnings.append(f"git ls-files failed: {exc}")
+        else:
+            if p.returncode == 0 and p.stdout:
+                return sorted(
+                    name.decode("utf-8", errors="surrogateescape")
+                    for name in p.stdout.split(b"\0") if name)
     warnings.append("git unavailable or empty index; walking the filesystem instead")
     files = []
     for p in repo.rglob("*"):
@@ -248,6 +261,12 @@ def unreferenced_modules(repo: Path, files: list[str]) -> set[str]:
             for part in re.split(r"[./\:]", ref):
                 if part:
                     imported.add(part.lower())
+        for match in FROM_IMPORT_SPEC.finditer(text):
+            for item in match.group(2).strip().strip("()").split(","):
+                name = item.strip().split(" as ", 1)[0].strip()
+                if name and name != "*":
+                    imported.add(Path(name).name.lower())
+                    imported.add(Path(name).stem.lower())
     out = set()
     for rel in code:
         if entrypoint.search(rel):
@@ -325,7 +344,7 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
         # 1. commands
         for lineno, line in fenced_blocks(text):
             for script in set(CMD_NPM.findall(line)):
-                if not all_npm:
+                if not npm_scripts:
                     continue
                 if script not in all_npm:
                     near = ", ".join(sorted(s for s in all_npm if s.startswith(script.split(":")[0]))[:4])
@@ -334,12 +353,12 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
                         f"documents `{script}`, which is not a script in any package.json.{hint}",
                         source="package.json")
             for target in set(CMD_MAKE.findall(line)):
-                if make_targets and target not in make_targets and target not in ("-j", "all"):
+                if make_targets and target not in make_targets and target != "-j":
                     add("missing-make-target", "high", doc, lineno,
                         f"documents `make {target}`, which is not a target in the Makefile.",
                         source="Makefile")
             for whole, inner in CMD_SCRIPT.findall(line):
-                candidate = (inner or whole).lstrip("./")
+                candidate = inner or whole
                 if not candidate or PLACEHOLDER.search(candidate):
                     continue
                 if candidate.endswith("/") or any(part in SKIP_DIRS
@@ -352,7 +371,8 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
         # 2 and 3. links and backticked paths
         for i, line in markdown_lines_without_code(text):
             for target in MD_LINK.findall(line):
-                t = unquote(target.split("#")[0].strip())
+                local_target = target.split("#", 1)[0].split("?", 1)[0].strip()
+                t = unquote(local_target)
                 if not t or t.startswith(("http://", "https://", "mailto:", "#", "tel:", "data:")):
                     continue
                 if PLACEHOLDER.search(t):

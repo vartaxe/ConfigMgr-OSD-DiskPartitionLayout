@@ -8,9 +8,10 @@ compatibility: "requires: gh CLI and git"
 
 # GitHub Release Skill
 
-This skill automates the full release workflow for a single-package GitHub repository,
-from analysis through changelog authoring and PR creation. It relies exclusively on
-`gh` (GitHub CLI) and `git` no other tools needed.
+This skill guides the full release workflow for a GitHub repository,
+from analysis through changelog authoring and PR creation. It uses `gh` (GitHub CLI)
+and `git` for repository operations and follows the repository's own tools for
+validation.
 
 Steps 1 - 4 are **read-only reconnaissance** nothing is written to the repo until
 Step 5, once the version number is confirmed.
@@ -205,6 +206,20 @@ When signals conflict ? **prefer the code diff**. Examples:
 Document any conflicts you notice - flag them to the user during the changelog review
 in Step 6.
 
+#### 3d - Inspect release metadata and automation
+
+Inspect the repository's release instructions, workflows, and package metadata.
+Identify every version source that must stay in sync (for example module manifests,
+package metadata, generated version files, or checksum manifests), the repository's
+required validation commands, and whether publishing is triggered by a pushed tag or
+requires a manual GitHub Release. In a monorepo, determine which package the user
+intends to release; do not assume the repository has one release unit.
+
+Do not treat `CHANGELOG.md` as the only release artifact. Follow the repository's
+documented process to update the relevant version sources and regenerate checksums
+after the final file contents are in place. Never invent a version file, checksum
+format, or release command when the repository does not establish one.
+
 ---
 
 ### Step 4 - Determine the next SemVer version
@@ -248,7 +263,11 @@ git push -u origin release/vX.Y.Z
 
 ---
 
-### Step 6 - Update CHANGELOG.md
+### Step 6 - Update release metadata and CHANGELOG.md
+
+Update the version metadata and checksum files identified in Step 3d using the
+repository's release conventions. Run the repository's documented version/checksum
+validation before proceeding; do not stage unrelated generated or local files.
 
 Read the existing `CHANGELOG.md` (or create it if absent). Follow the
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format strictly.
@@ -306,15 +325,19 @@ Incorporate feedback, then write to disk.
 
 ---
 
-### Step 7 - Commit and push
+### Step 7 - Validate, commit and push
 
 ```bash
-git add CHANGELOG.md
+git status --short
+git add -- CHANGELOG.md
+# Stage each actual version/checksum file path identified in Step 3d as well.
+# Example only: git add -- path/to/manifest path/to/checksum
 git commit -m "chore: release vX.Y.Z"
 git push origin release/vX.Y.Z
 ```
 
-Confirm the push succeeded before moving on.
+Run the repository's documented test/build/release-validation commands before
+committing. Confirm the push succeeded before moving on.
 
 ---
 
@@ -339,46 +362,55 @@ This PR prepares the **vX.Y.Z** release.
 
 ### Checklist
 - [ ] Changelog reviewed
-- [ ] Version bump verified
+- [ ] Version metadata and checksums verified
 - [ ] CI passing
 
-After merging, create the tag on the merge commit:
-\`\`\`
-git tag vX.Y.Z <merge-commit-sha>
-git push origin vX.Y.Z
-\`\`\`
+After merging, follow the repository's release workflow. If it publishes from a tag,
+create and push the documented tag on the merge commit; otherwise use the repository's
+documented release procedure.
 EOF
 )"
 ```
 
 ````PowerShell
-# Create PR body using here-string (preserves actual newlines, not escape sequences)
-$prBody = @"
-## Release vX.Y.Z
+# Use a single-quoted here-string so Markdown backticks remain literal.
+$prBodyTemplate = @'
+## Release __VERSION__
 
-This PR prepares the **vX.Y.Z** release.
+This PR prepares the **__VERSION__** release.
 
 ### What's included
-<paste changelog here>
+__CHANGELOG__
 
 ### Checklist
 - [ ] Changelog reviewed
-- [ ] Version bump verified
+- [ ] Version metadata and checksums verified
 - [ ] CI passing
 
-After merging, create the tag on the merge commit:
-```
-git tag vX.Y.Z <merge-commit-sha>
-git push origin vX.Y.Z
-```
-"@
+After merging, follow this repository's release workflow. If publishing is tag-driven,
+create and push the documented tag on the merge commit; otherwise use the documented
+manual release procedure.
+'@
 
-# Write to file and use --body-file (do NOT use inline --body with escape sequences)
-$prBody | Out-File -FilePath release_pr_body.md -Encoding utf8 -NoNewline
-gh pr create --base main --head release/vX.Y.Z --title "Release vX.Y.Z" --body-file release_pr_body.md
+$prBody = $prBodyTemplate.Replace('__VERSION__', 'vX.Y.Z').Replace('__CHANGELOG__', '<paste changelog here>')
+
+# Write a temporary UTF-8 file without a BOM and use --body-file (never inline --body).
+$bodyPath = Join-Path ([IO.Path]::GetTempPath()) ('release_pr_body_' + [guid]::NewGuid().ToString('N') + '.md')
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+try {
+    [IO.File]::WriteAllText($bodyPath, $prBody, $utf8NoBom)
+    gh pr create --base main --head release/vX.Y.Z --title "Release vX.Y.Z" --body-file $bodyPath
+    if ($LASTEXITCODE -ne 0) { throw "gh pr create failed with exit code $LASTEXITCODE." }
+}
+finally {
+    if (Test-Path -LiteralPath $bodyPath) {
+        Remove-Item -LiteralPath $bodyPath -ErrorAction Stop
+    }
+}
 ````
 
-Paste the changelog section into the PR body's "What's included" block (or leave placeholder for manual review).
+Replace the example version and changelog placeholders with the confirmed release
+version and proposed changelog section before creating the PR.
 
 
 ---
@@ -391,16 +423,11 @@ Tell the user:
 >
 > New version: **vX.Y.Z**
 >
-> Once the PR is reviewed and merged, you'll need to **create the tag yourself** on
-> the merge commit:
->
-> ```bash
-> git tag vX.Y.Z <merge-commit-sha>
-> git push origin vX.Y.Z
-> ```
->
-> Then go to GitHub Releases and publish the release from that tag. You can copy the
-> changelog section directly into the release notes.
+> After the PR is reviewed and merged, follow this repository's release workflow.
+> If a pushed tag triggers publishing, create the documented tag on the merge commit
+> and verify that workflow completed successfully. If publishing is manual, create a
+> GitHub Release only when the repository's process calls for it. Avoid publishing
+> twice when tag automation already created the release.
 
 ---
 

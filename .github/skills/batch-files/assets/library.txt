@@ -33,15 +33,39 @@ set "_argOneMyLib=%~2"
 set "_argTwoMyLib=%~3"
 set "_argThreeMyLib=%~4"
 
-if "%_funcMyLib%"=="/?" call :_showHelpMyLib & goto _removeBatchVariablesMyLib
-if /i "%_funcMyLib%"=="-h" call :_showHelpMyLib & goto _removeBatchVariablesMyLib
-if /i "%_funcMyLib%"=="--help" call :_showHelpMyLib & goto _removeBatchVariablesMyLib
+if "%_funcMyLib%"=="/?" (
+    call :_showHelpMyLib
+    goto _removeBatchVariablesMyLib
+)
+if /i "%_funcMyLib%"=="-h" (
+    call :_showHelpMyLib
+    goto _removeBatchVariablesMyLib
+)
+if /i "%_funcMyLib%"=="--help" (
+    call :_showHelpMyLib
+    goto _removeBatchVariablesMyLib
+)
 
-if /i "%_funcMyLib%"=="trimWhitespace" call :_trimWhitespaceMyLib & goto _removeBatchVariablesMyLib
-if /i "%_funcMyLib%"=="toLower" call :_toLowerMyLib & goto _removeBatchVariablesMyLib
-if /i "%_funcMyLib%"=="getTimestamp" call :_getTimestampMyLib & goto _removeBatchVariablesMyLib
-if /i "%_funcMyLib%"=="logMessage" call :_logMessageMyLib & goto _removeBatchVariablesMyLib
-if /i "%_funcMyLib%"=="padRight" call :_padRightMyLib & goto _removeBatchVariablesMyLib
+if /i "%_funcMyLib%"=="trimWhitespace" (
+    call :_trimWhitespaceMyLib
+    goto _removeBatchVariablesMyLib
+)
+if /i "%_funcMyLib%"=="toLower" (
+    call :_toLowerMyLib
+    goto _removeBatchVariablesMyLib
+)
+if /i "%_funcMyLib%"=="getTimestamp" (
+    call :_getTimestampMyLib
+    goto _removeBatchVariablesMyLib
+)
+if /i "%_funcMyLib%"=="logMessage" (
+    call :_logMessageMyLib
+    goto _removeBatchVariablesMyLib
+)
+if /i "%_funcMyLib%"=="padRight" (
+    call :_padRightMyLib
+    goto _removeBatchVariablesMyLib
+)
 
 echo ERROR: Unknown function "%_funcMyLib%". Run "%~n0 /?" for usage.
 goto _removeBatchVariablesMyLib
@@ -127,12 +151,16 @@ goto :eof
     REM   %_argOneMyLib% = level (INFO, WARN, ERROR)
     REM   %_argTwoMyLib% = message text
     REM NOTE: Uses %DATE% and %TIME% (locale-dependent). See :_getTimestampMyLib.
+    setlocal DisableDelayedExpansion
+    set "_logLevelMyLib=%_argOneMyLib%"
+    set "_logTextMyLib=%_argTwoMyLib%"
     setlocal EnableDelayedExpansion
     set "_dtMyLib=%DATE%"
     if "!_dtMyLib:~3,1!"==" " set "_dtMyLib=!_dtMyLib:~4!"
     set "_tmMyLib=%TIME: =0%"
     set "_tsMyLib=!_dtMyLib:~6,4!-!_dtMyLib:~0,2!-!_dtMyLib:~3,2! !_tmMyLib:~0,2!:!_tmMyLib:~3,2!:!_tmMyLib:~6,2!"
-    echo [!_tsMyLib!] [%_argOneMyLib%] %_argTwoMyLib%
+    echo [!_tsMyLib!] [!_logLevelMyLib!] !_logTextMyLib!
+    endlocal
     endlocal
 goto :eof
 

@@ -33,6 +33,8 @@ Examples:
 - Changing observable behavior that callers depend on (e.g., error types thrown,
   event names emitted, return value shape)
 - Changing a required configuration key or its accepted values
+- Adding a new required configuration key when an existing consumer can fail without
+  changing its own code, even when the key is inside an otherwise optional block
 - Dropping support for a runtime/language version that was previously supported
 - Removing or renaming a publicly exported module path
 
@@ -88,5 +90,5 @@ Default to `1.0.0` regardless of what's in the diff. Inform the user.
 | Only internal/private symbols changed | PATCH |
 | Type annotation added to previously untyped function | PATCH (non-breaking) |
 | Changing default value of optional parameter | Treat as MAJOR if callers might rely on old default |
-| Adding a new required config option to an optional block | MINOR if the block itself is optional, otherwise MAJOR |
+| Adding a new config option inside an optional block | MINOR only if existing users can omit it and retain compatible behavior (for example, a safe default); MAJOR if omission breaks a consumer |
 | Reverting a previous commit entirely | Follow what the net diff shows, not the revert message |

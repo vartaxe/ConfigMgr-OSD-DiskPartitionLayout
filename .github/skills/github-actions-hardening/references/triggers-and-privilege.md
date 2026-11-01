@@ -65,19 +65,26 @@ jobs:
 
 ```yaml
 # 2) Privileged: triggered by the first, never runs fork code
+# The downloaded artifact is still untrusted data; validate it and never execute it.
 name: PR Comment
 on:
   workflow_run:
     workflows: ["PR Build"]
     types: [completed]
 permissions:
+  actions: read
   pull-requests: write
 jobs:
   comment:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@<sha>   # data only, not executed
-      # post results, using the trusted token — but never execute the artifact
+      - uses: actions/download-artifact@<sha>
+        with:
+          name: pr
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      # Validate the untrusted files, then use them only as data in the comment.
+      # Never source, import, or execute downloaded files.
 ```
 
 ## Rules

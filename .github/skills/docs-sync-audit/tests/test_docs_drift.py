@@ -2,6 +2,7 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "docs_drift.py"
 SPEC = importlib.util.spec_from_file_location("docs_drift", SCRIPT_PATH)
@@ -29,6 +30,7 @@ class DocsDriftTests(unittest.TestCase):
 
 ```powershell
 pwsh ./scripts/02-check-review-status.ps1
+python .github/scripts/check.py
 [Fake](not-a-real-link.md)
 ```
 
@@ -40,15 +42,28 @@ PowerShell cast: `[Security.Principal.WindowsIdentity]::GetCurrent(`.
             assets = repo / "assets"
             assets.mkdir()
             (assets / "file with spaces.md").write_text("# Valid target\n", encoding="utf-8")
+            scripts = repo / ".github" / "scripts"
+            scripts.mkdir(parents=True)
+            (scripts / "check.py").write_text("print('ok')\n", encoding="utf-8")
             docs = repo / "docs"
-            docs.mkdir()
+            guides = docs / "guides"
+            guides.mkdir(parents=True)
+            (docs / "scripts").mkdir()
+            (docs / "scripts" / "check.py").write_text("print('ok')\n", encoding="utf-8")
+            (guides / "setup.md").write_text(
+                "```bash\npython ../scripts/check.py\n```\n", encoding="utf-8")
             encoded_link_doc = docs / "links.md"
-            encoded_link_doc.write_text("[Encoded link](../assets/file%20with%20spaces.md)\n", encoding="utf-8")
+            encoded_link_doc.write_text(
+                "[Encoded link](../assets/file%20with%20spaces.md?plain=1#usage)\n",
+                encoding="utf-8")
             files = [
                 ".github/skills/copilot-pr-autopilot/SKILL.md",
                 ".github/skills/copilot-pr-autopilot/references/01-request-review.md",
                 ".github/skills/copilot-pr-autopilot/scripts/02-check-review-status.ps1",
                 "assets/file with spaces.md",
+                ".github/scripts/check.py",
+                "docs/scripts/check.py",
+                "docs/guides/setup.md",
                 "docs/links.md",
             ]
 
@@ -63,6 +78,45 @@ PowerShell cast: `[Security.Principal.WindowsIdentity]::GetCurrent(`.
 
             env_names = DOCS_DRIFT.env_names_from_code(repo, files)
             self.assertEqual(set(env_names), {"WINDIR", "SYSTEMDRIVE", "COMPUTERNAME"})
+
+    def test_list_files_preserves_filename_whitespace_and_bytes(self):
+        with patch.object(DOCS_DRIFT.shutil, "which", return_value="git"), \
+                patch.object(DOCS_DRIFT.subprocess, "run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = b" spaced name.md\0control\tname.md\0"
+            self.assertEqual(
+                DOCS_DRIFT.list_files(Path(".")),
+                [" spaced name.md", "control\tname.md"])
+            self.assertIn("-z", run.call_args.args[0])
+
+    def test_from_import_marks_submodule_as_referenced(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            package = repo / "package"
+            package.mkdir()
+            (repo / "app.py").write_text("from package import config\n", encoding="utf-8")
+            (package / "config.py").write_text(
+                "import os\nAPI_TOKEN = os.getenv('API_TOKEN')\n", encoding="utf-8")
+            dead = DOCS_DRIFT.unreferenced_modules(
+                repo, ["app.py", "package/config.py"])
+            self.assertNotIn("package/config.py", dead)
+
+    def test_empty_npm_inventory_and_make_all_are_checked(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            docs = repo / "docs"
+            docs.mkdir()
+            (repo / "package.json").write_text(
+                '{"scripts": {}}\n', encoding="utf-8")
+            (repo / "Makefile").write_text("build:\n\t@echo build\n", encoding="utf-8")
+            doc = docs / "commands.md"
+            doc.write_text(
+                "```sh\nnpm run build\nmake all\n```\n", encoding="utf-8")
+            result = DOCS_DRIFT.build(
+                repo, ["package.json", "Makefile", "docs/commands.md"])
+            kinds = {finding["kind"] for finding in result["findings"]}
+            self.assertIn("missing-script", kinds)
+            self.assertIn("missing-make-target", kinds)
 
 
 if __name__ == "__main__":

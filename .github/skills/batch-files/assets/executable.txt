@@ -1,4 +1,5 @@
 @echo off
+setlocal DisableDelayedExpansion
 REM myTool
 ::  A standalone command-line tool template with argument parsing.
 ::
@@ -48,9 +49,18 @@ set "_checkParThreeMyTool=-%_parThreeMyTool%-"
 :: -----------------------------------------------------------------------
 :: Handle help and version flags.
 :: -----------------------------------------------------------------------
-if "%_parOneMyTool%"=="/?" call :_showHelpMyTool & goto _removeBatchVariablesMyTool
-if /i "%_parOneMyTool%"=="-h" call :_showHelpMyTool & goto _removeBatchVariablesMyTool
-if /i "%_parOneMyTool%"=="--help" call :_showHelpMyTool & goto _removeBatchVariablesMyTool
+if "%_parOneMyTool%"=="/?" (
+    call :_showHelpMyTool
+    goto _removeBatchVariablesMyTool
+)
+if /i "%_parOneMyTool%"=="-h" (
+    call :_showHelpMyTool
+    goto _removeBatchVariablesMyTool
+)
+if /i "%_parOneMyTool%"=="--help" (
+    call :_showHelpMyTool
+    goto _removeBatchVariablesMyTool
+)
 if /i "%_parOneMyTool%"=="-v" (
     echo %_scriptNameMyTool% version %_versionMyTool%
     goto _removeBatchVariablesMyTool
@@ -69,6 +79,7 @@ if /i "%_parOneMyTool%"=="--verbose" (
 
 :: Create temp directory for intermediate files.
 call :_makeTempDirMyTool
+if errorlevel 1 goto _removeBatchVariablesMyTool
 
 :: -----------------------------------------------------------------------
 :: Validate required input and start execution.
@@ -87,13 +98,13 @@ goto _removeBatchVariablesMyTool
 
 :_startMyTool
     if "%_verboseMyTool%"=="1" (
-        echo [VERBOSE] Input:  %_parOneMyTool%
-        echo [VERBOSE] Output: %_parTwoMyTool%
+        echo [VERBOSE] Input:  "%_parOneMyTool%"
+        echo [VERBOSE] Output: "%_parTwoMyTool%"
     )
 
     REM Validate input file exists.
     if NOT EXIST "%_parOneMyTool%" (
-        echo ERROR: Input file not found: %_parOneMyTool% 1>&2
+        echo ERROR: Input file not found: "%_parOneMyTool%" 1>&2
         goto :eof
     )
 
@@ -104,10 +115,10 @@ goto :eof
     REM ===================================================================
     REM TODO: Replace this section with your tool's logic.
     REM ===================================================================
-    echo Processing: %_parOneMyTool%
+    echo Processing: "%_parOneMyTool%"
 
     if NOT "%_checkParTwoMyTool%"=="--" (
-        echo Output to:  %_parTwoMyTool%
+        echo Output to:  "%_parTwoMyTool%"
         REM Example: copy input to output.
         REM copy /Y "%_parOneMyTool%" "%_parTwoMyTool%" >nul
     )
@@ -140,12 +151,19 @@ goto :eof
 goto :eof
 
 :_makeTempDirMyTool
-    set "_tmpDirMyTool=%TEMP%\%~n0_%RANDOM%%RANDOM%"
     set "_tmpDirCreatedMyTool=0"
-    if NOT EXIST "%_tmpDirMyTool%" (
-        mkdir "%_tmpDirMyTool%" >nul 2>nul
-        set "_tmpDirCreatedMyTool=1"
+    for /L %%i in (1,1,10) do call :_tryMakeTempDirMyTool
+    if "%_tmpDirCreatedMyTool%"=="0" (
+        echo ERROR: Could not create a unique temporary directory. 1>&2
+        exit /b 1
     )
+    exit /b 0
+
+:_tryMakeTempDirMyTool
+    if "%_tmpDirCreatedMyTool%"=="1" goto :eof
+    set "_tmpDirMyTool=%TEMP%\%~n0_%RANDOM%%RANDOM%"
+    2>nul mkdir "%_tmpDirMyTool%"
+    if not errorlevel 1 set "_tmpDirCreatedMyTool=1"
 goto :eof
 
 :: ========================================================================

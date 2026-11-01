@@ -165,13 +165,15 @@ These v5 operators have **no** new assertion. Leave them as classic `Should -...
 | Classic v5 | Workaround in v6 |
 |---|---|
 | `$p \| Should -Exist` | `Test-Path $p \| Should-BeTrue` |
-| `$p \| Should -FileContentMatch 're'` | `(Get-Content $p -Raw) \| Should-MatchString 're'` |
-| `$p \| Should -FileContentMatchExactly 're'` | `(Get-Content $p -Raw) \| Should-MatchString 're' -CaseSensitive` |
+| `$p \| Should -FileContentMatch 're'` | Keep the classic assertion; there is no direct `Should-*` equivalent. |
+| `$p \| Should -FileContentMatchExactly 're'` | Keep the classic assertion; there is no direct `Should-*` equivalent. |
 | `$p \| Should -FileContentMatchMultiline 're'` | `(Get-Content $p -Raw) \| Should-MatchString 're'` |
 | `$p \| Should -FileContentMatchMultilineExactly 're'` | `(Get-Content $p -Raw) \| Should-MatchString 're' -CaseSensitive` |
 
-(With `Get-Content -Raw`, `^` and `$` in the regex match the start/end of the whole
-file, matching the multiline operators' behavior.)
+The non-multiline classic assertions test the pattern against individual lines;
+keep them in classic syntax rather than changing them to whole-file matching.
+With `Get-Content -Raw`, `^` and `$` in the multiline regex match the start/end of
+the whole file.
 
 ---
 

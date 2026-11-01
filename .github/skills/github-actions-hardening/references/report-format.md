@@ -30,7 +30,8 @@ File: .github/workflows/triage.yml  (line 14)
 Trigger: pull_request_target
 
 Offending code:
-    - run: echo "New PR: ${{ github.event.pull_request.title }}"
+    - run: |
+        echo "New PR: ${{ github.event.pull_request.title }}"
 
 Risk: pull_request_target runs with a read/write token and repository secrets, and any
 contributor can open a PR with a title like  "; <attacker-command> #  which is executed as shell.
@@ -39,7 +40,8 @@ This allows secret exfiltration and pushes with the workflow token.
 Fix:
     - env:
         PR_TITLE: ${{ github.event.pull_request.title }}
-      run: echo "New PR: $PR_TITLE"
+      run: |
+        printf '%s\n' "New PR: $PR_TITLE"
 
 Confidence: High
 ```

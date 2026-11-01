@@ -1,4 +1,5 @@
 @echo off
+setlocal DisableDelayedExpansion
 REM myTask
 ::  An automation script for scheduled or manual task execution.
 ::
@@ -47,9 +48,18 @@ set "_checkParTwoMyTask=-%_parTwoMyTask%-"
 :: -----------------------------------------------------------------------
 :: Handle help flag.
 :: -----------------------------------------------------------------------
-if "%_parOneMyTask%"=="/?" call :_showHelpMyTask & goto _removeBatchVariablesMyTask
-if /i "%_parOneMyTask%"=="-h" call :_showHelpMyTask & goto _removeBatchVariablesMyTask
-if /i "%_parOneMyTask%"=="--help" call :_showHelpMyTask & goto _removeBatchVariablesMyTask
+if "%_parOneMyTask%"=="/?" (
+    call :_showHelpMyTask
+    goto _removeBatchVariablesMyTask
+)
+if /i "%_parOneMyTask%"=="-h" (
+    call :_showHelpMyTask
+    goto _removeBatchVariablesMyTask
+)
+if /i "%_parOneMyTask%"=="--help" (
+    call :_showHelpMyTask
+    goto _removeBatchVariablesMyTask
+)
 
 :: -----------------------------------------------------------------------
 :: Handle --dry flag (shift arguments if present).
@@ -65,6 +75,7 @@ set "_savedDirMyTask=%CD%"
 
 :: Create temp directory for intermediate files.
 call :_makeTempDirMyTask
+if errorlevel 1 goto _removeBatchVariablesMyTask
 
 :: -----------------------------------------------------------------------
 :: Log start and begin execution.
@@ -88,17 +99,17 @@ goto _removeBatchVariablesMyTask
     REM ===================================================================
 
     if "%_dryRunMyTask%"=="1" (
-        call :_logMyTask "[DRY RUN] Would process target: %_parOneMyTask%"
+        call :_logTargetMyTask "[DRY RUN] Would process target: "
         goto :eof
     )
 
     REM Example: Process files in a target directory.
     if NOT "%_checkParOneMyTask%"=="--" (
         if NOT EXIST "%_parOneMyTask%" (
-            call :_logMyTask "ERROR: Target not found: %_parOneMyTask%"
+            call :_logTargetMyTask "ERROR: Target not found: "
             goto :eof
         )
-        call :_logMyTask "Processing target: %_parOneMyTask%"
+        call :_logTargetMyTask "Processing target: "
         REM Add task operations here.
     ) else (
         call :_logMyTask "Running default task (no target specified)."
@@ -114,14 +125,28 @@ goto :eof
 
 :_logMyTask
     REM Write a timestamped message to both console and log file.
+    setlocal DisableDelayedExpansion
+    if "%~1"=="" (
+        set "_logTextMyTask=%_logMessageMyTask%"
+    ) else (
+        set "_logTextMyTask=%~1"
+    )
     setlocal EnableDelayedExpansion
     for /f "tokens=2 delims==" %%a in ('wmic os get localdatetime /value') do (
         set "_dtMyTask=%%a"
     )
     set "_tsMyTask=!_dtMyTask:~0,4!-!_dtMyTask:~4,2!-!_dtMyTask:~6,2! !_dtMyTask:~8,2!:!_dtMyTask:~10,2!:!_dtMyTask:~12,2!"
-    echo [!_tsMyTask!] %~1
-    echo [!_tsMyTask!] %~1 >>"%_logFileMyTask%"
+    echo [!_tsMyTask!] !_logTextMyTask!
+    echo [!_tsMyTask!] !_logTextMyTask! >>"%_logFileMyTask%"
     endlocal
+    endlocal
+goto :eof
+
+:_logTargetMyTask
+    setlocal DisableDelayedExpansion
+    set "_logMessageMyTask=%~1%_parOneMyTask%"
+    endlocal & set "_logMessageMyTask=%_logMessageMyTask%"
+    call :_logMyTask
 goto :eof
 
 :_showHelpMyTask
@@ -129,7 +154,7 @@ goto :eof
     for /f "skip=1 tokens=* delims=" %%a in ('findstr /n "^" "%~f0"') do (
         set "_line=%%a"
         setlocal EnableDelayedExpansion
-        set "_lineNum=!_line:~0,2!"
+        for /f "tokens=1 delims=:" %%n in ("!_line!") do set "_lineNum=%%n"
         if !_lineNum! GTR %_helpLinesMyTask% (
             endlocal
             goto :eof
@@ -145,10 +170,19 @@ goto :eof
 goto :eof
 
 :_makeTempDirMyTask
-    set "_tmpDirMyTask=%TEMP%\%~n0"
-    if NOT EXIST "%_tmpDirMyTask%" (
-        mkdir "%_tmpDirMyTask%" >nul 2>nul
+    set "_tmpDirCreatedMyTask=0"
+    for /L %%i in (1,1,10) do call :_tryMakeTempDirMyTask
+    if "%_tmpDirCreatedMyTask%"=="0" (
+        echo ERROR: Could not create a unique temporary directory. 1>&2
+        exit /b 1
     )
+    exit /b 0
+
+:_tryMakeTempDirMyTask
+    if "%_tmpDirCreatedMyTask%"=="1" goto :eof
+    set "_tmpDirMyTask=%TEMP%\%~n0_%RANDOM%%RANDOM%"
+    2>nul mkdir "%_tmpDirMyTask%"
+    if not errorlevel 1 set "_tmpDirCreatedMyTask=1"
 goto :eof
 
 :: ========================================================================
@@ -166,8 +200,11 @@ goto :eof
     set _checkParTwoMyTask=
     REM Append new variables above this line.
 
-    if EXIST "%_tmpDirMyTask%" rmdir /S /Q "%_tmpDirMyTask%" >nul 2>nul
+    if "%_tmpDirCreatedMyTask%"=="1" if EXIST "%_tmpDirMyTask%" rmdir /S /Q "%_tmpDirMyTask%" >nul 2>nul
     set _tmpDirMyTask=
+    set _tmpDirCreatedMyTask=
+    set _logMessageMyTask=
+    set _logTextMyTask=
 
     REM Restore original directory.
     if DEFINED _savedDirMyTask (

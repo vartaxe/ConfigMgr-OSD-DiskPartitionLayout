@@ -449,7 +449,7 @@ exit /b %ERRORLEVEL%
         call :usage
         exit /b 1
     )
-    echo Processing: %_TARGET%
+    echo Processing: "%_TARGET%"
     exit /b 0
 
 :parse_args

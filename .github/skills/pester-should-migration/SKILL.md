@@ -103,7 +103,10 @@ These do **not** translate by a plain rename. Read each before converting:
    `Should-HaveType`), pass it with `-Actual` instead of piping.
 6. **No `Should-*` equivalent.** `Should -Exist` and the `Should -FileContentMatch*`
    family have no new counterpart. Either keep the classic assertion, or rewrite with
-   PowerShell: `Test-Path $p | Should-BeTrue`, `(Get-Content $p -Raw) | Should-MatchString 're'`.
+   PowerShell. Preserve line-wise matching for `FileContentMatch` and
+   `FileContentMatchExactly` by matching each line; use `Get-Content -Raw` only for
+   `FileContentMatchMultiline` and `FileContentMatchMultilineExactly`, which match
+   across the whole file.
 7. **`Should -BeIn` direction.** No `Should-BeIn`. Reverse the operands:
    `$value | Should -BeIn $collection` → `$collection | Should-ContainCollection $value`
    (note the actual/expected swap), or keep the classic form.
