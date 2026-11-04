@@ -313,10 +313,10 @@ git push -u origin release/vX.Y.Z
 
 Update the version metadata and project-specific release notes identified in Step 3d
 using the repository's release conventions. If the project
-requires an exact version heading in a release-notes file, add it. Run the repository's
-documented version validation before proceeding; do not stage unrelated generated or
-local files. Defer checksum regeneration and checksum validation until the changelog and
-all other maintained files have their final contents; perform both in Step 7.
+requires an exact version heading in a release-notes file, add it. Do not stage unrelated
+generated or local files. Defer version validation, checksum
+regeneration, and checksum validation until the changelog and all other maintained
+files have their final contents; perform them in Step 7.
 
 Read the existing `CHANGELOG.md` (or create it if absent). Follow the
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format strictly.
@@ -376,9 +376,12 @@ Incorporate feedback, then write to disk.
 
 ### Step 7 - Validate, commit and push
 
-After the changelog and every maintained file are final, regenerate checksums last and
-run the full documented validation, including checksum verification. Do not validate
-the manifest before the changelog is written.
+After the changelog and every maintained file are final, regenerate checksums last.
+Then run the full documented validation, including version/tag and checksum verification:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build\Invoke-Validation.ps1 -Tag vX.Y.Z
+```
 
 ```bash
 git status --short

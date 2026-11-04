@@ -61,15 +61,15 @@ Describe 'GitHub release tag selection' {
             $script:SkillContent,
             '(?s)### Step 6 - Update release metadata and CHANGELOG\.md.*?(?=\r?\n---)'
         ).Value
-        $stepSix | Should -Match 'Defer checksum regeneration and checksum validation'
-        $stepSix | Should -Match 'all other maintained files have their final contents'
+        $stepSix | Should -Match 'Defer version validation, checksum\s+regeneration, and checksum validation until the changelog and all other maintained\s+files have their final contents; perform them in Step 7'
 
         $stepSeven = [regex]::Match(
             $script:SkillContent,
             '(?s)### Step 7 - Validate, commit and push.*?(?=\r?\n```bash)'
         ).Value
         $stepSeven | Should -Match 'regenerate checksums last'
-        $stepSeven | Should -Match 'before the changelog is written'
+        $stepSeven | Should -Match 'Then run the full documented validation, including version/tag and checksum verification'
+        $stepSeven.IndexOf('regenerate checksums last') | Should -BeLessThan $stepSeven.IndexOf('Then run the full documented validation')
 
         $script:SkillContent | Should -Not -Match 'Steps 1 - 4 are \*\*read-only reconnaissance\*\*'
         $script:SkillContent | Should -Match 'can change the\s+working tree and local refs'

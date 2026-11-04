@@ -1227,11 +1227,13 @@ continues inside this code span`
             self.assertEqual(len(missing), 1)
             self.assertEqual(missing[0]["line"], 3)
 
-    def test_markdown_links_inside_indented_code_and_quoted_fences_are_ignored(self):
+    def test_markdown_links_inside_genuine_indented_code_and_quoted_fences_are_ignored(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
             (repo / "README.md").write_text(
                 "    [indented](missing-indented.md)\n"
+                "    - [code list](missing-code-list.md)\n"
+                "        - [nested code list](missing-nested-code-list.md)\n"
                 "> ```md\n"
                 "> [quoted](missing-quoted.md)\n"
                 "> ```\n",
@@ -1241,6 +1243,33 @@ continues inside this code span`
 
             self.assertNotIn(
                 "broken-link", {finding["kind"] for finding in result["findings"]})
+
+    def test_markdown_links_in_nested_list_items_are_checked(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            (repo / "README.md").write_text(
+                "- Parent item\n"
+                "    - [Setup](missing-nested.md)\n"
+                "        - [Advanced setup](missing-deep.md)\n"
+                "> - Quoted parent item\n"
+                ">     - [Quoted setup](missing-quoted-nested.md)\n",
+                encoding="utf-8")
+
+            result = DOCS_DRIFT.build(repo, ["README.md"])
+            broken_links = [
+                finding for finding in result["findings"]
+                if finding["kind"] == "broken-link"
+            ]
+
+            self.assertEqual(
+                [finding["line"] for finding in broken_links], [2, 3, 5])
+            self.assertEqual(
+                [finding["detail"] for finding in broken_links],
+                [
+                    "relative link `missing-nested.md` does not resolve.",
+                    "relative link `missing-deep.md` does not resolve.",
+                    "relative link `missing-quoted-nested.md` does not resolve.",
+                ])
 
     def test_inline_code_spans_do_not_cross_markdown_heading_boundaries(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1828,6 +1857,40 @@ npm run build
             self.assertNotIn(
                 "missing-script-file",
                 {finding["kind"] for finding in result["findings"]})
+
+    def test_quoted_heredoc_payload_is_not_scanned_as_shell_commands(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            nested = repo / "packages" / "web"
+            nested.mkdir(parents=True)
+            (repo / "package.json").write_text(
+                '{"scripts": {"root-only": "root"}}\n', encoding="utf-8")
+            (nested / "package.json").write_text(
+                '{"scripts": {"web-only": "web"}}\n', encoding="utf-8")
+            (repo / "Makefile").write_text("root-only:\n", encoding="utf-8")
+            (nested / "Makefile").write_text("web-only:\n", encoding="utf-8")
+            (repo / "README.md").write_text(
+                "```bash\n"
+                "cat <<'EOF'\n"
+                "cd packages/web\n"
+                "npm run missing\n"
+                "make missing\n"
+                "python scripts/missing.py\n"
+                "EOF\n"
+                "npm run root-only\n"
+                "make root-only\n"
+                "```\n", encoding="utf-8")
+
+            result = DOCS_DRIFT.build(repo, [
+                "package.json", "packages/web/package.json", "Makefile",
+                "packages/web/Makefile", "README.md",
+            ])
+
+            self.assertFalse(any(
+                finding["kind"] in {
+                    "missing-script", "missing-make-target", "missing-script-file"
+                }
+                for finding in result["findings"]))
 
     def test_npm_multi_workspace_flags_script_missing_from_one_workspace(self):
         with tempfile.TemporaryDirectory() as temp_dir:

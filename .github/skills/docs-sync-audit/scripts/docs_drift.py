@@ -332,8 +332,88 @@ def fenced_block_groups(text: str) -> list[list[tuple[int, str]]]:
     return groups
 
 
+def shell_heredoc_delimiters(command: str) -> list[tuple[str, bool]]:
+    """Return shell here-document delimiters and whether leading tabs are ignored."""
+    delimiters: list[tuple[str, bool]] = []
+    quote = ""
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if quote == "'":
+            if char == "'":
+                quote = ""
+            index += 1
+            continue
+        if quote == '"':
+            if char == "\\" and index + 1 < len(command):
+                index += 2
+                continue
+            if char == '"':
+                quote = ""
+            index += 1
+            continue
+        if char == "\\" and index + 1 < len(command):
+            index += 2
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            index += 1
+            continue
+        if char == "#" and (index == 0 or command[index - 1].isspace()):
+            break
+        if not command.startswith("<<", index) or command.startswith("<<<", index):
+            index += 1
+            continue
+
+        index += 2
+        strip_tabs = index < len(command) and command[index] == "-"
+        if strip_tabs:
+            index += 1
+        while index < len(command) and command[index].isspace():
+            index += 1
+
+        delimiter: list[str] = []
+        word_quote = ""
+        while index < len(command):
+            char = command[index]
+            if word_quote == "'":
+                if char == "'":
+                    word_quote = ""
+                else:
+                    delimiter.append(char)
+                index += 1
+                continue
+            if word_quote == '"':
+                if char == "\\" and index + 1 < len(command):
+                    delimiter.append(command[index + 1])
+                    index += 2
+                    continue
+                if char == '"':
+                    word_quote = ""
+                else:
+                    delimiter.append(char)
+                index += 1
+                continue
+            if char == "\\" and index + 1 < len(command):
+                delimiter.append(command[index + 1])
+                index += 2
+                continue
+            if char in {"'", '"'}:
+                word_quote = char
+                index += 1
+                continue
+            if char.isspace() or char in ";|&<>":
+                break
+            delimiter.append(char)
+            index += 1
+
+        if delimiter:
+            delimiters.append(("".join(delimiter), strip_tabs))
+    return delimiters
+
+
 def logical_shell_commands(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
-    """Join backslash-continued physical lines while preserving each command's first line."""
+    """Join continued commands and skip here-document payloads."""
     commands: list[tuple[int, str]] = []
     index = 0
     while index < len(lines):
@@ -347,6 +427,13 @@ def logical_shell_commands(lines: list[tuple[int, str]]) -> list[tuple[int, str]
             command += lines[index][1]
         commands.append((start_line, command))
         index += 1
+        for delimiter, strip_tabs in shell_heredoc_delimiters(command):
+            while index < len(lines):
+                body_line = lines[index][1]
+                index += 1
+                terminator = body_line.lstrip("\t") if strip_tabs else body_line
+                if terminator == delimiter:
+                    break
     return commands
 
 
@@ -361,6 +448,57 @@ def markdown_blockquote_content(line: str, depth: int | None = None) -> tuple[in
         content = content[prefix.end():]
         count += 1
     return count, content
+
+
+def is_nested_markdown_list_item(lines: list[str], line_index: int,
+                                 quote_depth: int, content: str) -> bool:
+    """Distinguish a nested list marker from a four-space indented code line."""
+    marker = re.match(r"^( +)(?:[-+*]|\d{1,9}[.)])[ \t]+", content)
+    if not marker or len(marker.group(1)) < 4:
+        return False
+
+    indent = len(marker.group(1))
+    for parent_index in range(line_index - 1, -1, -1):
+        parent_depth, parent_content = markdown_blockquote_content(lines[parent_index])
+        if parent_depth != quote_depth:
+            if lines[parent_index].strip():
+                break
+            continue
+        if not parent_content.strip():
+            continue
+
+        parent_marker = re.match(
+            r"^( *)(?:[-+*]|\d{1,9}[.)])[ \t]+", parent_content)
+        if not parent_marker:
+            continue
+        parent_indent = len(parent_marker.group(1))
+        if parent_indent >= indent:
+            continue
+        if (parent_indent >= 4
+                and not is_nested_markdown_list_item(
+                    lines, parent_index, parent_depth, parent_content)):
+            continue
+
+        remains_in_parent = True
+        for between_index in range(parent_index + 1, line_index):
+            between_depth, between_content = markdown_blockquote_content(
+                lines[between_index])
+            if not between_content.strip():
+                continue
+            if between_depth != quote_depth:
+                remains_in_parent = False
+                break
+            between_indent = len(between_content) - len(between_content.lstrip(" "))
+            between_marker = re.match(
+                r"^( *)(?:[-+*]|\d{1,9}[.)])[ \t]+", between_content)
+            if (between_indent <= parent_indent
+                    and (not between_marker
+                         or len(between_marker.group(1)) <= parent_indent)):
+                remains_in_parent = False
+                break
+        if remains_in_parent:
+            return True
+    return False
 
 
 def fence_closes(line: str, marker: re.Match[str], fence_char: str,
@@ -1062,7 +1200,8 @@ def markdown_lines_without_code(text: str) -> list[tuple[int, str]]:
             fence_length = len(marker.group(1))
             fence_depth = depth
             fenced_lines[i] = True
-        elif content.startswith(("    ", "\t")):
+        elif (content.startswith(("    ", "\t"))
+              and not is_nested_markdown_list_item(lines, i, depth, content)):
             fenced_lines[i] = True
 
     cleaned_lines = [list(line) for line in lines]
