@@ -419,6 +419,38 @@ continues inside this code span`
                 "undocumented-env",
                 {finding["kind"] for finding in result["findings"]})
 
+    def test_javascript_environment_reads_ignore_comments_and_strings(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            (repo / "main.js").write_text(
+                "// process.env.COMMENT_ONLY\n"
+                'const quoted = "process.env.STRING_ONLY";\n'
+                "const template = `process.env.TEMPLATE_TEXT`;\n"
+                "const live = process.env.LIVE_SETTING;\n"
+                "const interpolated = `${process.env.TEMPLATE_VALUE}`;\n",
+                encoding="utf-8")
+            (repo / ".env.example").write_text(
+                "COMMENT_ONLY=1\n"
+                "STRING_ONLY=1\n"
+                "TEMPLATE_TEXT=1\n"
+                "LIVE_SETTING=1\n"
+                "TEMPLATE_VALUE=1\n",
+                encoding="utf-8")
+
+            result = DOCS_DRIFT.build(
+                repo, ["main.js", ".env.example", "README.md"])
+
+            unused = {
+                finding["detail"].split("`", 2)[1]
+                for finding in result["findings"]
+                if finding["kind"] == "documented-unused-env"
+            }
+            self.assertEqual(
+                unused, {"COMMENT_ONLY", "STRING_ONLY", "TEMPLATE_TEXT"})
+            self.assertEqual(
+                set(DOCS_DRIFT.env_names_from_code(repo, ["main.js"])),
+                {"LIVE_SETTING", "TEMPLATE_VALUE"})
+
     def test_env_reads_are_scoped_to_powershell_and_shell_sources(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
@@ -1651,6 +1683,30 @@ npm run build
                 [("missing-script", 4), ("missing-make-target", 6),
                  ("missing-script-file", 8)],
             )
+
+    def test_powershell_continuation_keeps_npm_check_in_selected_package(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            web = repo / "packages" / "web"
+            web.mkdir(parents=True)
+            (repo / "package.json").write_text(
+                '{"scripts": {"root-only": "root"}}\n', encoding="utf-8")
+            (web / "package.json").write_text(
+                '{"scripts": {"web-only": "web"}}\n', encoding="utf-8")
+            doc = repo / "README.md"
+            doc.write_text(
+                "```powershell\n"
+                "cd `\n"
+                "  packages/web\n"
+                "npm run root-only\n"
+                "```\n", encoding="utf-8")
+
+            result = DOCS_DRIFT.build(
+                repo, ["package.json", "packages/web/package.json", "README.md"])
+
+            self.assertIn(
+                "missing-script",
+                {finding["kind"] for finding in result["findings"]})
 
     def test_nested_workspace_selectors_are_scoped_to_effective_command_directory(self):
         with tempfile.TemporaryDirectory() as temp_dir:

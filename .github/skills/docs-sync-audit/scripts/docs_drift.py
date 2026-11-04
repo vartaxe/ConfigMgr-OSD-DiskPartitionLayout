@@ -302,12 +302,12 @@ def npm_workspaces(repo: Path, npm: dict[str, set[str]],
 
 def fenced_blocks(text: str) -> list[tuple[int, str]]:
     """Yield (line_number, line) for lines inside fenced code blocks."""
-    return [line for group in fenced_block_groups(text) for line in group]
+    return [line for _, group in fenced_block_groups(text) for line in group]
 
 
-def fenced_block_groups(text: str) -> list[list[tuple[int, str]]]:
+def fenced_block_groups(text: str) -> list[tuple[str, list[tuple[int, str]]]]:
     """Return fenced code lines grouped so shell state does not leak between blocks."""
-    groups: list[list[tuple[int, str]]] = []
+    groups: list[tuple[str, list[tuple[int, str]]]] = []
     current: list[tuple[int, str]] | None = None
     fence_char = ""
     fence_length = 0
@@ -317,7 +317,9 @@ def fenced_block_groups(text: str) -> list[list[tuple[int, str]]]:
         marker = FENCE.match(content)
         if marker and current is None:
             current = []
-            groups.append(current)
+            info = content[marker.end():].strip()
+            language = info.split(None, 1)[0].lower() if info else ""
+            groups.append((language, current))
             fence_char = marker.group(1)[0]
             fence_length = len(marker.group(1))
             fence_depth = depth
@@ -412,13 +414,21 @@ def shell_heredoc_delimiters(command: str) -> list[tuple[str, bool]]:
     return delimiters
 
 
-def logical_shell_commands(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
+def logical_shell_commands(
+        lines: list[tuple[int, str]], powershell: bool = False
+        ) -> list[tuple[int, str]]:
     """Join continued commands and skip here-document payloads."""
     commands: list[tuple[int, str]] = []
     index = 0
     while index < len(lines):
         start_line, command = lines[index]
         while index + 1 < len(lines):
+            stripped = command.rstrip()
+            backticks = len(stripped) - len(stripped.rstrip("`"))
+            if powershell and backticks % 2:
+                command = stripped[:-1] + " " + lines[index + 1][1].lstrip()
+                index += 1
+                continue
             backslashes = len(command) - len(command.rstrip("\\"))
             if backslashes % 2 == 0:
                 break
@@ -1864,6 +1874,11 @@ def env_names_from_code(repo: Path, files: list[str]) -> dict[str, list[str]]:
             for name, line in python_env_reads(text):
                 found.setdefault(name, []).append(f"{rel}:{line}")
             continue
+        if Path(rel).suffix.lower() in {
+                ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"}:
+            for name, line in javascript_env_reads(text):
+                found.setdefault(name, []).append(f"{rel}:{line}")
+            continue
         for i, line in enumerate(text.splitlines(), start=1):
             names = [name for pattern in ENV_IN_CODE for name in pattern.findall(line)]
             for name in names:
@@ -1871,6 +1886,87 @@ def env_names_from_code(repo: Path, files: list[str]) -> dict[str, list[str]]:
         if Path(rel).suffix.lower() == ".sh":
             for name, line in shell_env_reads(text):
                 found.setdefault(name, []).append(f"{rel}:{line}")
+    return found
+
+
+def javascript_env_reads(text: str) -> list[tuple[str, int]]:
+    """Find environment reads in JavaScript/TypeScript code, not comments or strings."""
+    code = list(text)
+
+    def mask(start: int, end: int) -> None:
+        for position in range(start, end):
+            if text[position] != "\n":
+                code[position] = " "
+
+    def scan_code(index: int, template_expression: bool = False) -> int:
+        brace_depth = 0
+        while index < len(text):
+            if template_expression and text[index] == "}":
+                if brace_depth == 0:
+                    return index + 1
+                brace_depth -= 1
+            elif template_expression and text[index] == "{":
+                brace_depth += 1
+
+            if text.startswith("//", index):
+                end = text.find("\n", index)
+                end = len(text) if end < 0 else end
+                mask(index, end)
+                index = end
+            elif text.startswith("/*", index):
+                end = text.find("*/", index + 2)
+                end = len(text) if end < 0 else end + 2
+                mask(index, end)
+                index = end
+            elif text[index] in {"'", '"'}:
+                quote = text[index]
+                start = index
+                index += 1
+                while index < len(text):
+                    if text[index] == "\\":
+                        index += 2
+                    elif text[index] == quote:
+                        index += 1
+                        break
+                    else:
+                        index += 1
+                mask(start, min(index, len(text)))
+            elif text[index] == "`":
+                mask(index, index + 1)
+                index += 1
+                while index < len(text):
+                    if text[index] == "\\":
+                        mask(index, min(index + 2, len(text)))
+                        index += 2
+                    elif text.startswith("${", index):
+                        mask(index, index + 2)
+                        index = scan_code(index + 2, template_expression=True)
+                    elif text[index] == "`":
+                        mask(index, index + 1)
+                        index += 1
+                        break
+                    else:
+                        mask(index, index + 1)
+                        index += 1
+            else:
+                index += 1
+        return index
+
+    scan_code(0)
+    found = []
+    seen = set()
+    for pattern in ENV_IN_CODE:
+        for match in pattern.finditer(text):
+            if code[match.start()] == " ":
+                continue
+            name = next((group for group in match.groups() if group), None)
+            if not name:
+                continue
+            line = text.count("\n", 0, match.start()) + 1
+            item = (name, line)
+            if item not in seen:
+                found.append(item)
+                seen.add(item)
     return found
 
 
@@ -2029,7 +2125,7 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
             continue
 
         # 1. commands
-        for block in fenced_block_groups(text):
+        for language, block in fenced_block_groups(text):
             npm_cwd = documentation_npm_cwd(doc, npm_scripts)
             npm_directory_stack: list[Path | None] = []
             make_cwd = Path(".")
@@ -2037,7 +2133,8 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
             script_cwd = Path(".")
             script_directory_stack: list[Path] = []
             explicit_script_directory_change = False
-            for lineno, line in logical_shell_commands(block):
+            for lineno, line in logical_shell_commands(
+                    block, powershell=language in {"powershell", "pwsh"}):
                 npm_cwd, npm_calls = npm_commands_in_line(
                     repo, npm_scripts, line, npm_cwd, workspace_names,
                     npm_directory_stack)
