@@ -1026,6 +1026,22 @@ continues inside this code span`
             self.assertEqual(len(missing_targets), 1)
             self.assertIn("web-only", missing_targets[0]["detail"])
 
+    def test_make_target_count_is_unique_across_makefiles(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            nested = repo / "packages" / "web"
+            nested.mkdir(parents=True)
+            (repo / "Makefile").write_text(
+                "build:\nshared:\n", encoding="utf-8")
+            (nested / "Makefile").write_text(
+                "test:\nshared:\n", encoding="utf-8")
+
+            result = DOCS_DRIFT.build(
+                repo, ["Makefile", "packages/web/Makefile"])
+
+            self.assertEqual(result["totals"]["make_targets_found"], 3)
+            self.assertIn("make targets: 3", DOCS_DRIFT.render(result, 30))
+
     def test_make_uses_makefile_at_fenced_block_working_directory(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)

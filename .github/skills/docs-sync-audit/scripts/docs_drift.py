@@ -1832,6 +1832,7 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
     npm_scripts, make_targets = available_commands(repo, files)
     workspace_names = npm_workspace_names(repo, files)
     all_npm = set().union(*npm_scripts.values()) if npm_scripts else set()
+    all_make = set().union(*make_targets.values()) if make_targets else set()
     docs = [f for f in files
             if Path(f).suffix in DOC_EXTS and not any(p in SKIP_DIRS for p in Path(f).parts)]
     documented_entrypoints: set[str] = set()
@@ -1999,7 +2000,7 @@ def build(repo: Path, files: list[str], check_paths: bool = False) -> dict:
     return {
         "repo": str(repo),
         "totals": {"docs_checked": len(docs), "findings": len(findings),
-                   "npm_scripts_found": len(all_npm), "make_targets_found": len(make_targets),
+                   "npm_scripts_found": len(all_npm), "make_targets_found": len(all_make),
                    "env_names_in_code": len(in_code), "env_names_documented": len(in_docs)},
         "findings": findings,
         "warnings": warnings,

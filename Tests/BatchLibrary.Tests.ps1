@@ -53,8 +53,16 @@ BeforeAll {
             [switch]$NamedVariable
         )
 
-        $batchValue = $Value.Replace('^', '^^').Replace('!', '^!')
-        $batchExpectedValue = $ExpectedValue.Replace('^', '^^').Replace('!', '^!')
+        $batchValue = if ($NamedVariable -and -not $Value.Contains('!')) {
+            $Value
+        } else {
+            $Value.Replace('^', '^^').Replace('!', '^!')
+        }
+        $batchExpectedValue = if ($NamedVariable -and -not $ExpectedValue.Contains('!')) {
+            $ExpectedValue
+        } else {
+            $ExpectedValue.Replace('^', '^^').Replace('!', '^!')
+        }
         $batchWidth = if ($null -eq $Width) { '' } else { $Width.Replace('^', '^^').Replace('!', '^!') }
         $call = if ($NamedVariable) {
             'call "{0}" {1} testValue' -f $script:ExecutablePath, $Function
@@ -150,6 +158,30 @@ Describe 'Batch library padRight' {
             -Value 'A!B' -ExpectedValue 'a!b' -NamedVariable
         $result.Output | Should -Match 'VALUE_PRESERVED'
         $result.Output | Should -Match 'DELAYED_EXPANSION_RESTORED'
+        $result.ExitCode | Should -Be 0
+    }
+
+    It 'preserves caret-only positional values with caller delayed expansion enabled' {
+        $result = Invoke-BatchLibraryWithDelayedExpansion -Function 'padRight' `
+            -Value 'A^B' -ExpectedValue 'A^B' -Width '5'
+        $result.Output | Should -Match 'VALUE_PRESERVED'
+        $result.Output | Should -Match '(?m)^A\^B  $'
+        $result.ExitCode | Should -Be 0
+    }
+
+    It 'preserves caret-only trimmed named-variable outputs with caller delayed expansion enabled' {
+        $result = Invoke-BatchLibraryWithDelayedExpansion -Function 'trimWhitespace' `
+            -Value '  A^B  ' -ExpectedValue 'A^B' -NamedVariable
+        $result.Output | Should -Match 'VALUE_PRESERVED'
+        $result.Output | Should -Match 'VALUE=A\^B'
+        $result.ExitCode | Should -Be 0
+    }
+
+    It 'preserves caret-only converted named-variable outputs with caller delayed expansion enabled' {
+        $result = Invoke-BatchLibraryWithDelayedExpansion -Function 'toLower' `
+            -Value 'A^B' -ExpectedValue 'a^b' -NamedVariable
+        $result.Output | Should -Match 'VALUE_PRESERVED'
+        $result.Output | Should -Match 'VALUE=a\^b'
         $result.ExitCode | Should -Be 0
     }
 

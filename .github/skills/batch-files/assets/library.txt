@@ -35,10 +35,18 @@ set "_funcMyLib=%~1"
 set "_argOneMyLib=%~2"
 set "_argTwoMyLib=%~3"
 set "_argThreeMyLib=%~4"
-if "%_delayedExpansionMyLib%"=="1" set "_funcMyLib=%_funcMyLib:^=^^%"
-if "%_delayedExpansionMyLib%"=="1" set "_argOneMyLib=%_argOneMyLib:^=^^%"
-if "%_delayedExpansionMyLib%"=="1" set "_argTwoMyLib=%_argTwoMyLib:^=^^%"
-if "%_delayedExpansionMyLib%"=="1" set "_argThreeMyLib=%_argThreeMyLib:^=^^%"
+if not defined _funcMyLib goto _skipFuncCaretEscapeMyLib
+if "%_delayedExpansionMyLib%"=="1" if not "%_funcMyLib%"=="%_funcMyLib:!=x%" set "_funcMyLib=%_funcMyLib:^=^^%"
+:_skipFuncCaretEscapeMyLib
+if not defined _argOneMyLib goto _skipArgOneCaretEscapeMyLib
+if "%_delayedExpansionMyLib%"=="1" if not "%_argOneMyLib%"=="%_argOneMyLib:!=x%" set "_argOneMyLib=%_argOneMyLib:^=^^%"
+:_skipArgOneCaretEscapeMyLib
+if not defined _argTwoMyLib goto _skipArgTwoCaretEscapeMyLib
+if "%_delayedExpansionMyLib%"=="1" if not "%_argTwoMyLib%"=="%_argTwoMyLib:!=x%" set "_argTwoMyLib=%_argTwoMyLib:^=^^%"
+:_skipArgTwoCaretEscapeMyLib
+if not defined _argThreeMyLib goto _skipArgThreeCaretEscapeMyLib
+if "%_delayedExpansionMyLib%"=="1" if not "%_argThreeMyLib%"=="%_argThreeMyLib:!=x%" set "_argThreeMyLib=%_argThreeMyLib:^=^^%"
+:_skipArgThreeCaretEscapeMyLib
 if "%_delayedExpansionMyLib%"=="1" set "_funcMyLib=%_funcMyLib:!=^!%"
 if "%_delayedExpansionMyLib%"=="1" set "_argOneMyLib=%_argOneMyLib:!=^!%"
 if "%_delayedExpansionMyLib%"=="1" set "_argTwoMyLib=%_argTwoMyLib:!=^!%"
@@ -130,7 +138,9 @@ goto _removeBatchVariablesMyLib
     )
     setlocal DisableDelayedExpansion
     set "_valMyLib=%_valMyLib%"
-    if "%_delayedExpansionMyLib%"=="1" set "_valMyLib=%_valMyLib:^=^^%"
+    if not defined _valMyLib goto _skipTrimCaretEscapeMyLib
+    if "%_delayedExpansionMyLib%"=="1" if not "%_valMyLib%"=="%_valMyLib:!=x%" set "_valMyLib=%_valMyLib:^=^^%"
+:_skipTrimCaretEscapeMyLib
     if "%_delayedExpansionMyLib%"=="1" set "_valMyLib=%_valMyLib:!=^!%"
     endlocal & endlocal & set "%_argOneMyLib%=%_valMyLib%"
 goto :eof
@@ -175,7 +185,9 @@ goto :eof
     )
     setlocal DisableDelayedExpansion
     set "_valMyLib=%_valMyLib%"
-    if "%_delayedExpansionMyLib%"=="1" set "_valMyLib=%_valMyLib:^=^^%"
+    if not defined _valMyLib goto _skipToLowerCaretEscapeMyLib
+    if "%_delayedExpansionMyLib%"=="1" if not "%_valMyLib%"=="%_valMyLib:!=x%" set "_valMyLib=%_valMyLib:^=^^%"
+:_skipToLowerCaretEscapeMyLib
     if "%_delayedExpansionMyLib%"=="1" set "_valMyLib=%_valMyLib:!=^!%"
     endlocal & endlocal & set "%_argOneMyLib%=%_valMyLib%"
 goto :eof
@@ -199,7 +211,9 @@ goto :eof
     set "_stampMyLib=!_stampMyLib!_!_tmMyLib:~0,2!-!_tmMyLib:~3,2!-!_tmMyLib:~6,2!"
     setlocal DisableDelayedExpansion
     set "_stampMyLib=%_stampMyLib%"
-    if "%_delayedExpansionMyLib%"=="1" set "_stampMyLib=%_stampMyLib:^=^^%"
+    if not defined _stampMyLib goto _skipStampCaretEscapeMyLib
+    if "%_delayedExpansionMyLib%"=="1" if not "%_stampMyLib%"=="%_stampMyLib:!=x%" set "_stampMyLib=%_stampMyLib:^=^^%"
+:_skipStampCaretEscapeMyLib
     if "%_delayedExpansionMyLib%"=="1" set "_stampMyLib=%_stampMyLib:!=^!%"
     endlocal & endlocal & set "%_argOneMyLib%=%_stampMyLib%"
 goto :eof
