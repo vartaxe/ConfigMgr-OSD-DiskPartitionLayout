@@ -1,0 +1,528 @@
+---
+name: github-release
+description: >
+  Guides IA through releasing a new version of a GitHub library end-to-end.
+  Handles SemVer versioning and Keep a Changelog formatting automatically.
+compatibility: "requires: gh CLI and git"
+---
+
+# GitHub Release Skill
+
+This skill guides the full release workflow for a GitHub repository,
+from analysis through changelog authoring and PR creation. It uses `gh` (GitHub CLI)
+and `git` for repository operations and follows the repository's own tools for
+validation.
+
+Steps 1 - 4 do not edit release metadata or create a release branch, but Step 1
+checks out and pulls `main` and Step 2 fetches tags; those commands can change the
+working tree and local refs. Verify the starting status and explain these effects
+before running them. No release metadata is written until Step 5, after version
+confirmation.
+
+## When to Use This Skill
+
+Use this skill whenever the user wants to cut a new release, publish a new version,
+bump a version, create a release branch, generate a changelog, or open a release PR
+on a GitHub repository. Trigger even if the user says something casual like "let's
+ship a new version" or "time to release".
+
+---
+
+## Prerequisites
+
+Examples below include both Bash and PowerShell variants; Windows users should prefer
+the PowerShell blocks.
+
+Before starting, verify the environment:
+
+```bash
+gh auth status                        # must be authenticated
+gh repo view --json nameWithOwner     # must be inside a GitHub repo
+git status                            # working tree should be clean
+```
+
+If any check fails, stop and tell the user what to fix before continuing.
+
+Then ask the user one question:
+
+> *"Which directory contains your library's public-facing source code?
+> (e.g. `src/`, `lib/`, `pkg/` - used to focus the diff on what consumers
+> actually see. Press Enter to scan the whole repo.)"*
+
+Store the answer as `PUBLIC_PATH`. If empty, `PUBLIC_PATH` is `.` (repo root).
+Exclude these paths from all diffs regardless: `tests/`, `test/`, `spec/`,
+`__tests__/`, `docs/`, `*.lock`, `*-lock.json`, `*.sum`, generated files
+(files with a "do not edit" header comment), and build artefacts.
+
+---
+
+## The 9-Step Release Workflow
+
+Work through every step in order. Show the user what command you're about to run and
+its output. Pause and ask for confirmation only when explicitly noted.
+
+---
+
+### Step 1 - Ensure main is up to date
+
+This changes the local branch and may update working-tree files. Confirm the
+repository is clean first; do not describe this checkout/pull as read-only.
+
+```bash
+git checkout main
+git pull origin main
+```
+
+Stay on `main` for now. The release branch is created in Step 5, after the version
+is confirmed.
+
+---
+
+### Step 2 - Grab the latest version tag
+
+Fetching tags updates local Git refs even though it does not edit release files.
+
+> **Why not `gh release list`?** GitHub Releases are an optional layer on top of Git
+> tags. Many repos tag releases with `git tag` without ever creating a GitHub Release,
+> so `gh release list` can return empty even when version tags exist. Reading tags
+> directly from git is the reliable source of truth.
+
+```bash
+# Fetch all tags from remote to ensure local view is current
+git fetch --tags
+
+# Compare numeric components after removing one optional leading v/V; retain the original tag
+PREV_TAG=$(
+  git tag |
+  grep -E '^[vV]?[0-9]+\.[0-9]+\.[0-9]+$' |
+  awk '{ tag=$0; version=$0; sub(/^[vV]/, "", version); print version "\t" tag }' |
+  sort -t "$(printf '\t')" -k1,1Vr -k2,2 |
+  head -1 |
+  cut -f2-
+)
+if [ -z "$PREV_TAG" ]; then PREV_TAG="(none)"; fi
+echo "Latest tag: $PREV_TAG"
+```
+
+```PowerShell
+# Fetch all tags from remote to ensure local view is current
+git fetch --tags
+
+# Compare numeric components after removing one optional leading v/V; retain the original tag
+$prevTag = git tag |
+  Where-Object { $_ -match '^[vV]?\d+\.\d+\.\d+$' } |
+  ForEach-Object {
+    [pscustomobject]@{
+      Version = [version]($_ -replace '^[vV]', '')
+      Tag = $_
+    }
+  } |
+  Sort-Object -Property @{ Expression = 'Version'; Descending = $true }, @{ Expression = 'Tag'; Descending = $false } |
+  Select-Object -First 1 -ExpandProperty Tag
+
+if ($prevTag) {
+  $prevSha = git rev-list -n 1 $prevTag
+} else {
+  $prevTag = '(none)'
+  $prevSha = cmd /d /c 'git hash-object -t tree --stdin <NUL'
+}
+
+Write-Output "Latest tag: $prevTag"
+```
+
+When a stable version tag was found, verify it exists on the remote (not just locally):
+
+```bash
+if [ "$PREV_TAG" != "(none)" ]; then
+  git ls-remote --exit-code --refs origin "refs/tags/$PREV_TAG" >/dev/null
+fi
+```
+
+The fully qualified ref query checks the exact tag name; `--exit-code` makes a
+missing remote tag return nonzero, and `--refs` excludes peeled annotated-tag
+records. If the command fails for a real tag, warn the user that it appears
+local-only and has not been pushed. No remote tag check is needed when `PREV_TAG`
+is `(none)`.
+
+- `PREV_TAG` is the tag name exactly as found (e.g. `v1.4.2`). Strip any leading `v`
+  when doing arithmetic; preserve it when naming things.
+- For example, among `v1.9.0` and `2.0.0`, select `2.0.0`: compare the numeric
+  components after stripping one optional leading `v`/`V`, but keep the original tag
+  spelling for checkout and output. Equal numeric versions are resolved deterministically
+  by tag-name order.
+- If **no tags exist at all**, treat `PREV_TAG` as `(none)`, set `PREV_SHA` to the
+  empty Git tree, and propose `1.0.0` as the new version. Continue through Step 3,
+  including release-metadata and automation discovery in Step 3d. In Step 4, skip only
+  the bump calculation; still present `1.0.0` and its rationale and wait for the owner's
+  confirmation before proceeding.
+- If the tag does not point to a real commit (orphaned tag), fall back to
+  `git rev-list --max-parents=0 HEAD` and warn the user.
+
+```bash
+if [ "$PREV_TAG" = "(none)" ]; then
+  PREV_SHA=$(git hash-object -t tree --stdin </dev/null)
+else
+  PREV_SHA=$(git rev-list -n 1 "$PREV_TAG" 2>/dev/null || git rev-list --max-parents=0 HEAD)
+fi
+```
+
+---
+
+### Step 3 - Analyse what changed since the last release
+
+This step uses **two complementary signals**. The code diff is the primary source of
+truth; commit messages provide supporting context about intent.
+
+#### 3a - Code diff (primary signal)
+
+```bash
+# Focused diff on the public source path, excluding noise
+git diff "$PREV_SHA"..HEAD -- "$PUBLIC_PATH" \
+  ':(exclude)tests/' ':(exclude)test/' ':(exclude)spec/' \
+  ':(exclude)__tests__/' ':(exclude)docs/' \
+  ':(exclude)*.lock' ':(exclude)*-lock.json' ':(exclude)*.sum'
+```
+
+```PowerShell
+# Focused diff on the public source path, excluding noise
+git diff "$($prevSha)..HEAD" -- $publicPath `
+  ':(exclude)tests/' ':(exclude)test/' ':(exclude)spec/' `
+  ':(exclude)__tests__/' ':(exclude)docs/' `
+  ':(exclude)*.lock' ':(exclude)*-lock.json' ':(exclude)*.sum'
+```
+
+Read the full diff output. For each changed file, identify:
+
+1. **Removed symbols** - functions, classes, methods, constants, exported names that
+   existed before and are now gone. ? Strong signal for MAJOR.
+2. **Changed signatures** - functions that exist in both versions but with different
+   parameters, return types, or thrown errors. ? Strong signal for MAJOR.
+3. **New exported symbols** - public functions, classes, constants that didn't exist
+   before. ? Signal for MINOR.
+4. **Internal-only changes** - modifications that don't touch any public interface
+   (private helpers, unexported functions, algorithm internals). ? PATCH.
+5. **Bug fixes** - corrections to logic that was provably wrong (e.g. off-by-one,
+   null check, wrong condition), without changing the public API. ? PATCH.
+
+If the diff is very large (thousands of lines), first run the stat summary to
+prioritise which files to read in full:
+
+```bash
+git diff "$PREV_SHA"..HEAD --stat -- "$PUBLIC_PATH"
+```
+
+Focus your detailed reading on files with the most changes and files whose names
+suggest they define public interfaces (e.g. `index.*`, `api.*`, `exports.*`,
+`public.*`, `mod.*`, `__init__.*`).
+
+#### 3b - Commit log (secondary signal)
+
+```bash
+if [ "$PREV_TAG" = "(none)" ]; then
+  git log HEAD --oneline --no-merges
+else
+  git log "$PREV_TAG"..HEAD --oneline --no-merges
+fi
+```
+
+Use this to:
+- Understand the **intent** behind code changes that aren't self-explanatory from
+  the diff alone (e.g. a one-line security fix labelled as such).
+- Catch changes that may be in paths outside `PUBLIC_PATH` but are still user-visible
+  (e.g. a CLI flag change in a `cmd/` directory).
+- Fill in context for changelog entries where the code alone doesn't tell the whole
+  story.
+
+See `references/commit-classification.md` for mapping message patterns to change types.
+
+#### 3c - Reconcile the two signals
+
+When signals agree ? use that classification with confidence.
+
+When signals conflict ? **prefer the code diff**. Examples:
+- Commit says `fix: typo` but the diff shows a removed public method ? treat as MAJOR.
+- Commit says `feat: new API` but the diff only touches private internals ? treat as PATCH.
+- Commit says `chore: refactor` but the diff adds new exported symbols ? treat as MINOR.
+
+Document any conflicts you notice - flag them to the user during the changelog review
+in Step 6.
+
+#### 3d - Inspect release metadata and automation
+
+Inspect the repository's release instructions, workflows, and package metadata.
+Identify every version source that must stay in sync (for example module manifests,
+package metadata, generated version files, or checksum manifests), the repository's
+required validation commands, any required versioned release-note section (for example
+`## vX.Y.Z` in `RELEASE-NOTES.md`), and whether publishing is triggered by a pushed
+tag or requires a manual GitHub Release. For automated releases, also identify the
+exact-tag validation, downloadable-artifact verification, and approval gates required
+before promotion. In a monorepo, determine which package the user intends to release;
+do not assume the repository has one release unit.
+
+Do not treat `CHANGELOG.md` as the only release artifact. Follow the repository's
+documented process to update the relevant version sources and regenerate checksums
+after the final file contents are in place. Never invent a version file, checksum
+format, or release command when the repository does not establish one.
+
+---
+
+### Step 4 - Determine the next SemVer version
+
+Apply these rules to your analysis from Step 3 (full rules in `references/semver-rules.md`):
+
+| Condition | Bump |
+|---|---|
+| Any breaking change to public API (removal, signature change, behaviour change) | MAJOR |
+| New exported symbol or feature, no breaking changes | MINOR |
+| Bug fix, perf improvement, security fix, docs, chore only | PATCH |
+
+When a release contains a mix, the **highest precedence wins**:
+`MAJOR > MINOR > PATCH`.
+
+Compute `NEXT_VERSION`:
+- When `PREV_TAG` is `(none)`, use the proposed first version `1.0.0` without running
+  bump calculation.
+- Otherwise, split `PREV_TAG` into `MAJOR.MINOR.PATCH` integers, apply the appropriate
+  bump, and format as `vMAJOR.MINOR.PATCH`.
+
+**Present the proposed version to the user** with a brief rationale that cites
+specific code findings, not just commit messages. Example:
+
+> *"I'm proposing v2.1.0. The diff shows two new exported functions (`NewClient` and
+> `WithTimeout`) in `src/client.go`, and no existing public symbols were removed or
+> changed. Commit messages corroborate this as feature additions."*
+
+Ask: *"Does this version look right, or would you like to adjust it?"*
+Wait for confirmation before proceeding.
+
+---
+
+### Step 5 - Create the release branch
+
+Only after the owner has explicitly confirmed the proposed version in Step 4, create
+and push the branch with the correct name from the start:
+
+```bash
+git checkout -b release/vX.Y.Z
+git push -u origin release/vX.Y.Z
+```
+
+---
+
+### Step 6 - Update release metadata and CHANGELOG.md
+
+Update the version metadata and project-specific release notes identified in Step 3d
+using the repository's release conventions. If the project
+requires an exact version heading in a release-notes file, add it. Do not stage unrelated
+generated or local files. Defer version validation, checksum
+regeneration, and checksum validation until the changelog and all other maintained
+files have their final contents; perform them in Step 7.
+
+Read the existing `CHANGELOG.md` (or create it if absent). Follow the
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format strictly.
+
+**Structure to insert** at the top (just below the `# Changelog` header):
+
+```markdown
+## [X.Y.Z] - YYYY-MM-DD
+
+### Added
+- ...
+
+### Changed
+- ...
+
+### Deprecated
+- ...
+
+### Removed
+- ...
+
+### Fixed
+- ...
+
+### Security
+- ...
+```
+
+Rules:
+- Use today's date in `YYYY-MM-DD` format.
+- Omit sections that have no entries - don't leave empty headings.
+- Write entries in **plain English from a user's perspective**, derived primarily
+  from what the code diff shows, supplemented by commit message context.
+  Good: *"Added `WithTimeout` option to HTTP client constructor."*
+  Bad: *"feat: add timeout cfg param"*
+- Map findings to sections:
+  - New exported symbol ? Added
+  - Breaking removal ? Removed
+  - Breaking change to existing API ? Changed (flag it as breaking)
+  - Bug/logic fix, perf ? Fixed
+  - Security fix ? Security
+  - Internal refactor, docs, chore, test ? omit unless user-visible
+- If a commit message revealed intent that the code diff alone wouldn't convey
+  (e.g. a security fix disguised as a one-line change), include that context in
+  the changelog entry.
+- Also update the diff link at the bottom of the file:
+  ```markdown
+  [X.Y.Z]: https://github.com/OWNER/REPO/compare/vPREV...vNEXT
+  ```
+
+**Show the user the proposed changelog section before writing it to disk.**
+If any signal conflicts were found in Step 3c, flag them here so the user can verify.
+Ask: *"Does this changelog look accurate? Any entries to add, remove, or reword?"*
+Incorporate feedback, then write to disk.
+
+---
+
+### Step 7 - Validate, commit and push
+
+After the changelog and every maintained file are final, regenerate checksums last.
+Then run the full documented validation, including version/tag and checksum verification:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build\Invoke-Validation.ps1 -Tag vX.Y.Z
+```
+
+```bash
+git status --short
+git add -- CHANGELOG.md
+# Stage each actual version/checksum file path identified in Step 3d as well.
+# Example only: git add -- path/to/manifest path/to/checksum
+git commit -m "chore: release vX.Y.Z"
+git push origin release/vX.Y.Z
+```
+
+Run the repository's documented test/build/release-validation commands before
+committing, including validation against the proposed version/tag when supported.
+After a tag-driven workflow runs, follow the project release process to validate the
+tagged revision and downloaded artifact (including file-set and checksum checks) before
+promotion. Confirm the push succeeded before moving on.
+
+---
+
+### Step 8 - Open a Pull Request
+
+**?? IMPORTANT:** Always use `--body-file` to pass PR body text, never `--body` with inline text.
+Inline escape sequences like `\n` are not interpreted as newlines by PowerShell and will appear
+as literal text in the PR. Using a file ensures proper markdown formatting.
+
+```bash
+gh pr create \
+  --base main \
+  --head release/vX.Y.Z \
+  --title "Release vX.Y.Z" \
+  --body "$(cat <<'EOF'
+## Release vX.Y.Z
+
+This PR prepares the **vX.Y.Z** release.
+
+### What's included
+<!-- paste the changelog section here -->
+
+### Checklist
+- [ ] Changelog reviewed
+- [ ] Version metadata and checksums verified
+- [ ] CI passing
+
+After merging, follow the repository's release workflow. If it publishes from a tag,
+create and push the documented tag on the merge commit; otherwise use the repository's
+documented release procedure.
+EOF
+)"
+```
+
+````PowerShell
+# Use a single-quoted here-string so Markdown backticks remain literal.
+$prBodyTemplate = @'
+## Release __VERSION__
+
+This PR prepares the **__VERSION__** release.
+
+### What's included
+__CHANGELOG__
+
+### Checklist
+- [ ] Changelog reviewed
+- [ ] Version metadata and checksums verified
+- [ ] CI passing
+
+After merging, follow this repository's release workflow. If publishing is tag-driven,
+create and push the documented tag on the merge commit; otherwise use the documented
+manual release procedure.
+'@
+
+$prBody = $prBodyTemplate.Replace('__VERSION__', 'vX.Y.Z').Replace('__CHANGELOG__', '<paste changelog here>')
+
+# Write a temporary UTF-8 file without a BOM and use --body-file (never inline --body).
+$bodyPath = Join-Path ([IO.Path]::GetTempPath()) ('release_pr_body_' + [guid]::NewGuid().ToString('N') + '.md')
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+try {
+    [IO.File]::WriteAllText($bodyPath, $prBody, $utf8NoBom)
+    gh pr create --base main --head release/vX.Y.Z --title "Release vX.Y.Z" --body-file $bodyPath
+    if ($LASTEXITCODE -ne 0) { throw "gh pr create failed with exit code $LASTEXITCODE." }
+}
+finally {
+    if (Test-Path -LiteralPath $bodyPath) {
+        Remove-Item -LiteralPath $bodyPath -ErrorAction Stop
+    }
+}
+````
+
+Replace the example version and changelog placeholders with the confirmed release
+version and proposed changelog section before creating the PR.
+
+
+---
+
+### Step 9 - Hand off to the user
+
+Tell the user:
+
+> **Release PR is open! ??**
+>
+> New version: **vX.Y.Z**
+>
+> After the PR is reviewed and merged, follow this repository's release workflow.
+> If a pushed tag triggers publishing, create the documented tag on the merge commit
+> and verify the workflow, tagged revision, and downloaded artifact using this
+> repository's release checks before any promotion. Obtain the required maintainer
+> approval. If publishing is manual, follow the repository's process. Avoid publishing
+> twice when tag automation already created the release.
+
+---
+
+## Error handling
+
+| Situation | What to do |
+|---|---|
+| `gh auth status` fails | Stop; tell user to run `gh auth login` |
+| Not inside a git repo | Stop; tell user to `cd` into their repo |
+| Working tree is dirty | Warn; ask if they want to stash or abort |
+| No commits since last tag | Tell user there's nothing to release |
+| Tag exists but points to no commit | Use first commit as diff base; warn user |
+| Latest tag exists locally but not on remote | Warn user; ask if they want to push the tag first or continue anyway |
+| Diff is empty for `PUBLIC_PATH` but commits exist | Warn; all changes may be internal; ask if they still want to proceed |
+| `git push` fails (e.g. protected branch rules) | Report the error verbatim; suggest they check branch protection settings |
+
+---
+
+## Troubleshooting in PowerShell
+
+- If a command that works locally prints gh usage or treats a subcommand as separate token, ensure you're
+  invoking the gh.exe on PATH (Get-Command gh) and avoid passing unexpanded nested substitutions; use the PowerShell
+  patterns above.
+- Recommend tests: gh --version; git fetch --tags; run the PowerShell snippet to set $prevTag and run git diff --name-only $prevSha..HEAD -- src/
+
+---
+
+## Limitations
+
+- Requires the `gh` CLI to be installed and authenticated.
+- Requires git tags to determine current version.
+
+---
+
+## Reference files
+
+- `references/semver-rules.md` - Extended SemVer decision rules and edge cases
+- `references/commit-classification.md` - Heuristics for classifying commit messages into change types

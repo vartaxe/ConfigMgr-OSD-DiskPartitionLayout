@@ -1,0 +1,316 @@
+@echo off
+REM myLib
+::  A reusable function library with CALL-able labels.
+::
+::  usage: call myLib [function] [args...]
+::   Functions:
+::     trimWhitespace  [inputVar]            Trim leading/trailing spaces
+::     toLower         [inputVar]            Convert value to lowercase
+::     getTimestamp     [outputVar]           Get current date-time stamp
+::     logMessage       [level] [message]    Write a log entry
+::     padRight         [string] [width]     Right-pad a string with spaces
+::
+::  examples:
+::   > set "myVar=  Hello World  "
+::   > call myLib trimWhitespace myVar
+::   > call myLib getTimestamp _now
+::   > call myLib logMessage INFO "Acme Corp backup started"
+::
+set "_helpLinesMyLib=17"
+
+:: ========================================================================
+:: TEMPLATE INSTRUCTIONS
+:: 1. Find/Replace "myLib" with your library name (camelCase).
+:: 2. Find/Replace "MyLib" with your library name (PascalCase).
+:: 3. Add your own :_funcNameMyLib labels below.
+:: 4. Update the help block above (lines 2-17) for your library.
+:: 5. Add any new variables to :_removeBatchVariablesMyLib.
+:: ========================================================================
+
+:: Route to the requested function.
+set "_delayedExpansionMyLib=0"
+if "!_delayedExpansionMyLib!"=="0" set "_delayedExpansionMyLib=1"
+setlocal DisableDelayedExpansion
+set "_funcMyLib=%~1"
+set "_argOneMyLib=%~2"
+set "_argTwoMyLib=%~3"
+set "_argThreeMyLib=%~4"
+if not defined _funcMyLib goto _skipFuncCaretEscapeMyLib
+if "%_delayedExpansionMyLib%"=="1" if not "%_funcMyLib%"=="%_funcMyLib:!=x%" set "_funcMyLib=%_funcMyLib:^=^^%"
+:_skipFuncCaretEscapeMyLib
+if not defined _argOneMyLib goto _skipArgOneCaretEscapeMyLib
+if "%_delayedExpansionMyLib%"=="1" if not "%_argOneMyLib%"=="%_argOneMyLib:!=x%" set "_argOneMyLib=%_argOneMyLib:^=^^%"
+:_skipArgOneCaretEscapeMyLib
+if not defined _argTwoMyLib goto _skipArgTwoCaretEscapeMyLib
+if "%_delayedExpansionMyLib%"=="1" if not "%_argTwoMyLib%"=="%_argTwoMyLib:!=x%" set "_argTwoMyLib=%_argTwoMyLib:^=^^%"
+:_skipArgTwoCaretEscapeMyLib
+if not defined _argThreeMyLib goto _skipArgThreeCaretEscapeMyLib
+if "%_delayedExpansionMyLib%"=="1" if not "%_argThreeMyLib%"=="%_argThreeMyLib:!=x%" set "_argThreeMyLib=%_argThreeMyLib:^=^^%"
+:_skipArgThreeCaretEscapeMyLib
+if "%_delayedExpansionMyLib%"=="1" set "_funcMyLib=%_funcMyLib:!=^!%"
+if "%_delayedExpansionMyLib%"=="1" set "_argOneMyLib=%_argOneMyLib:!=^!%"
+if "%_delayedExpansionMyLib%"=="1" set "_argTwoMyLib=%_argTwoMyLib:!=^!%"
+if "%_delayedExpansionMyLib%"=="1" set "_argThreeMyLib=%_argThreeMyLib:!=^!%"
+endlocal & set "_funcMyLib=%_funcMyLib%" & set "_argOneMyLib=%_argOneMyLib%" & set "_argTwoMyLib=%_argTwoMyLib%" & set "_argThreeMyLib=%_argThreeMyLib%"
+
+call :_setSuccessMyLib
+set "_resultMyLib=0"
+
+if "%_funcMyLib%"=="/?" (
+    call :_showHelpMyLib
+    call set "_resultMyLib=%%ERRORLEVEL%%"
+    goto _removeBatchVariablesMyLib
+)
+if /i "%_funcMyLib%"=="-h" (
+    call :_showHelpMyLib
+    call set "_resultMyLib=%%ERRORLEVEL%%"
+    goto _removeBatchVariablesMyLib
+)
+if /i "%_funcMyLib%"=="--help" (
+    call :_showHelpMyLib
+    call set "_resultMyLib=%%ERRORLEVEL%%"
+    goto _removeBatchVariablesMyLib
+)
+
+if /i "%_funcMyLib%"=="trimWhitespace" (
+    call :_trimWhitespaceMyLib
+    call set "_resultMyLib=%%ERRORLEVEL%%"
+    goto _removeBatchVariablesMyLib
+)
+if /i "%_funcMyLib%"=="toLower" (
+    call :_toLowerMyLib
+    call set "_resultMyLib=%%ERRORLEVEL%%"
+    goto _removeBatchVariablesMyLib
+)
+if /i "%_funcMyLib%"=="getTimestamp" (
+    call :_getTimestampMyLib
+    call set "_resultMyLib=%%ERRORLEVEL%%"
+    goto _removeBatchVariablesMyLib
+)
+if /i "%_funcMyLib%"=="logMessage" (
+    call :_logMessageMyLib
+    call set "_resultMyLib=%%ERRORLEVEL%%"
+    goto _removeBatchVariablesMyLib
+)
+if /i "%_funcMyLib%"=="padRight" (
+    call :_padRightMyLib
+    call set "_resultMyLib=%%ERRORLEVEL%%"
+    goto _removeBatchVariablesMyLib
+)
+
+echo ERROR: Unknown function "%_funcMyLib%". Run "%~n0 /?" for usage.
+call :_setFailureMyLib
+call set "_resultMyLib=%%ERRORLEVEL%%"
+goto _removeBatchVariablesMyLib
+
+:: ========================================================================
+:: LIBRARY FUNCTIONS
+:: ========================================================================
+
+:_setSuccessMyLib
+    exit /b 0
+
+:_setFailureMyLib
+    exit /b 1
+
+:_trimWhitespaceMyLib
+    REM Trim leading and trailing spaces from a variable.
+    REM   %_argOneMyLib% = name of the variable to trim (passed by name).
+    if not defined _argOneMyLib goto :eof
+    setlocal EnableDelayedExpansion
+    set "_valMyLib=!%_argOneMyLib%!"
+    REM Trim leading spaces without FOR /F's default semicolon end-of-line handling.
+:_trimLeadingMyLib
+    if not "!_valMyLib:~0,1!"==" " goto _trimTrailingMyLib
+    set "_valMyLib=!_valMyLib:~1!"
+    goto _trimLeadingMyLib
+    REM Trim trailing spaces.
+:_trimTrailingMyLib
+    if "!_valMyLib:~-1!"==" " (
+        set "_valMyLib=!_valMyLib:~0,-1!"
+        goto _trimTrailingMyLib
+    )
+    set "_quoteFreeMyLib=!_valMyLib:"=!"
+    if not "!_valMyLib!"=="!_quoteFreeMyLib!" (
+        echo ERROR: trimWhitespace does not support double quotes in named variable values.
+        endlocal
+        exit /b 1
+    )
+    setlocal DisableDelayedExpansion
+    set "_valMyLib=%_valMyLib%"
+    if not defined _valMyLib goto _skipTrimCaretEscapeMyLib
+    if "%_delayedExpansionMyLib%"=="1" if not "%_valMyLib%"=="%_valMyLib:!=x%" set "_valMyLib=%_valMyLib:^=^^%"
+:_skipTrimCaretEscapeMyLib
+    if "%_delayedExpansionMyLib%"=="1" set "_valMyLib=%_valMyLib:!=^!%"
+    endlocal & endlocal & set "%_argOneMyLib%=%_valMyLib%"
+goto :eof
+
+:_toLowerMyLib
+    REM Convert a variable's value to lowercase.
+    REM   %_argOneMyLib% = name of the variable to convert (passed by name).
+    if not defined _argOneMyLib goto :eof
+    setlocal EnableDelayedExpansion
+    set "_valMyLib=!%_argOneMyLib%!"
+    set "_valMyLib=!_valMyLib:A=a!"
+    set "_valMyLib=!_valMyLib:B=b!"
+    set "_valMyLib=!_valMyLib:C=c!"
+    set "_valMyLib=!_valMyLib:D=d!"
+    set "_valMyLib=!_valMyLib:E=e!"
+    set "_valMyLib=!_valMyLib:F=f!"
+    set "_valMyLib=!_valMyLib:G=g!"
+    set "_valMyLib=!_valMyLib:H=h!"
+    set "_valMyLib=!_valMyLib:I=i!"
+    set "_valMyLib=!_valMyLib:J=j!"
+    set "_valMyLib=!_valMyLib:K=k!"
+    set "_valMyLib=!_valMyLib:L=l!"
+    set "_valMyLib=!_valMyLib:M=m!"
+    set "_valMyLib=!_valMyLib:N=n!"
+    set "_valMyLib=!_valMyLib:O=o!"
+    set "_valMyLib=!_valMyLib:P=p!"
+    set "_valMyLib=!_valMyLib:Q=q!"
+    set "_valMyLib=!_valMyLib:R=r!"
+    set "_valMyLib=!_valMyLib:S=s!"
+    set "_valMyLib=!_valMyLib:T=t!"
+    set "_valMyLib=!_valMyLib:U=u!"
+    set "_valMyLib=!_valMyLib:V=v!"
+    set "_valMyLib=!_valMyLib:W=w!"
+    set "_valMyLib=!_valMyLib:X=x!"
+    set "_valMyLib=!_valMyLib:Y=y!"
+    set "_valMyLib=!_valMyLib:Z=z!"
+    set "_quoteFreeMyLib=!_valMyLib:"=!"
+    if not "!_valMyLib!"=="!_quoteFreeMyLib!" (
+        echo ERROR: toLower does not support double quotes in named variable values.
+        endlocal
+        exit /b 1
+    )
+    setlocal DisableDelayedExpansion
+    set "_valMyLib=%_valMyLib%"
+    if not defined _valMyLib goto _skipToLowerCaretEscapeMyLib
+    if "%_delayedExpansionMyLib%"=="1" if not "%_valMyLib%"=="%_valMyLib:!=x%" set "_valMyLib=%_valMyLib:^=^^%"
+:_skipToLowerCaretEscapeMyLib
+    if "%_delayedExpansionMyLib%"=="1" set "_valMyLib=%_valMyLib:!=^!%"
+    endlocal & endlocal & set "%_argOneMyLib%=%_valMyLib%"
+goto :eof
+
+:_getTimestampMyLib
+    REM Write a YYYY-MM-DD_HH-MM-SS timestamp into the named variable.
+    REM   %_argOneMyLib% = name of the output variable.
+    REM NOTE: Uses %DATE% and %TIME% which are locale-dependent. The parsing
+    REM   below assumes US-style format (e.g., "Fri 04/18/2026" or "04/18/2026").
+    REM   Adjust the substring offsets for your locale, or use PowerShell for
+    REM   a locale-independent alternative:
+    REM     for /f %%a in ('powershell -nop -c "Get-Date -F yyyy-MM-dd_HH-mm-ss"') do set "var=%%a"
+    if not defined _argOneMyLib goto :eof
+    setlocal EnableDelayedExpansion
+    REM Parse date — strip leading day name if present (e.g., "Fri ").
+    set "_dtMyLib=%DATE%"
+    if "!_dtMyLib:~3,1!"==" " set "_dtMyLib=!_dtMyLib:~4!"
+    set "_stampMyLib=!_dtMyLib:~6,4!-!_dtMyLib:~0,2!-!_dtMyLib:~3,2!"
+    REM Parse time — replace leading space with 0 for single-digit hours.
+    set "_tmMyLib=%TIME: =0%"
+    set "_stampMyLib=!_stampMyLib!_!_tmMyLib:~0,2!-!_tmMyLib:~3,2!-!_tmMyLib:~6,2!"
+    setlocal DisableDelayedExpansion
+    set "_stampMyLib=%_stampMyLib%"
+    if not defined _stampMyLib goto _skipStampCaretEscapeMyLib
+    if "%_delayedExpansionMyLib%"=="1" if not "%_stampMyLib%"=="%_stampMyLib:!=x%" set "_stampMyLib=%_stampMyLib:^=^^%"
+:_skipStampCaretEscapeMyLib
+    if "%_delayedExpansionMyLib%"=="1" set "_stampMyLib=%_stampMyLib:!=^!%"
+    endlocal & endlocal & set "%_argOneMyLib%=%_stampMyLib%"
+goto :eof
+
+:_logMessageMyLib
+    REM Write a timestamped log line to stdout.
+    REM   %_argOneMyLib% = level (INFO, WARN, ERROR)
+    REM   %_argTwoMyLib% = message text
+    REM NOTE: Uses %DATE% and %TIME% (locale-dependent). See :_getTimestampMyLib.
+    setlocal DisableDelayedExpansion
+    set "_logLevelMyLib=%_argOneMyLib%"
+    set "_logTextMyLib=%_argTwoMyLib%"
+    setlocal EnableDelayedExpansion
+    set "_dtMyLib=%DATE%"
+    if "!_dtMyLib:~3,1!"==" " set "_dtMyLib=!_dtMyLib:~4!"
+    set "_tmMyLib=%TIME: =0%"
+    set "_tsMyLib=!_dtMyLib:~6,4!-!_dtMyLib:~0,2!-!_dtMyLib:~3,2! !_tmMyLib:~0,2!:!_tmMyLib:~3,2!:!_tmMyLib:~6,2!"
+    echo [!_tsMyLib!] [!_logLevelMyLib!] !_logTextMyLib!
+    endlocal
+    endlocal
+goto :eof
+
+:_padRightMyLib
+    REM Pad a string to a given width with trailing spaces.
+    REM   %_argOneMyLib% = the string to pad
+    REM   %_argTwoMyLib% = desired total width
+    if not defined _argTwoMyLib goto :eof
+    setlocal EnableDelayedExpansion
+    set "_widthMyLib=!_argTwoMyLib!"
+    if not "!_widthMyLib:;=!"=="!_widthMyLib!" goto _padRightInvalidWidthMyLib
+    set "_invalidWidthMyLib="
+    for /f "delims=0123456789" %%a in ("!_widthMyLib!") do set "_invalidWidthMyLib=1"
+    if defined _invalidWidthMyLib goto _padRightInvalidWidthMyLib
+    set "_widthDigitsMyLib="
+    for /f "tokens=* delims=0" %%a in ("!_widthMyLib!") do set "_widthDigitsMyLib=%%a"
+    if not defined _widthDigitsMyLib set "_widthDigitsMyLib=0"
+    if not "!_widthDigitsMyLib:~4,1!"=="" goto _padRightInvalidWidthMyLib
+    set /a _widthMyLib=_widthDigitsMyLib
+    if !_widthMyLib! GTR 8000 goto _padRightInvalidWidthMyLib
+    if !_widthMyLib! EQU 0 (
+        echo(
+        endlocal
+        goto :eof
+    )
+    set "_valMyLib=!_argOneMyLib!"
+    set "_padMyLib=!_valMyLib!"
+    if not defined _padMyLib set "_padMyLib= "
+:_padRightAddSpacesMyLib
+    if not "!_padMyLib:~%_widthMyLib%,1!"=="" goto _padRightFinishMyLib
+    set "_padMyLib=!_padMyLib!                                                  "
+    goto _padRightAddSpacesMyLib
+:_padRightFinishMyLib
+    set "_padMyLib=!_padMyLib:~0,%_widthMyLib%!"
+    echo(!_padMyLib!
+    endlocal
+goto :eof
+
+:_padRightInvalidWidthMyLib
+    echo ERROR: padRight width must be an integer from 0 to 8000.
+    endlocal & exit /b 1
+
+:: ========================================================================
+:: HELP
+:: ========================================================================
+
+:_showHelpMyLib
+    echo:
+    for /f "skip=1 delims=" %%a in ('findstr /n "^" "%~f0"') do (
+        set "_line=%%a"
+        setlocal EnableDelayedExpansion
+        for /f "delims=:" %%n in ("!_line!") do set "_lineNum=%%n"
+        if !_lineNum! GTR %_helpLinesMyLib% (
+            endlocal
+            goto :eof
+        )
+        set "_text=!_line:*:=!"
+        if defined _text (
+            echo !_text:~4!
+        ) else (
+            echo:
+        )
+        endlocal
+    )
+goto :eof
+
+:: ========================================================================
+:: CLEANUP — Remove all batch variables.
+:: ========================================================================
+:_removeBatchVariablesMyLib
+    set "_returnCodeMyLib=%_resultMyLib%"
+    set _helpLinesMyLib=
+    set _funcMyLib=
+    set _argOneMyLib=
+    set _argTwoMyLib=
+    set _argThreeMyLib=
+    set _delayedExpansionMyLib=
+    set _resultMyLib=
+    set _valMyLib=
+    REM Append new variables above this line.
+    set "_returnCodeMyLib=" & exit /b %_returnCodeMyLib%
