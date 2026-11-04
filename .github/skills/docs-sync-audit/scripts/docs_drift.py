@@ -404,13 +404,59 @@ def dynamic_directory_target(target: str) -> bool:
     )
 
 
+def makefile_target_inventory(text: str) -> tuple[set[str], bool]:
+    """Return statically known target names and whether variable targets are resolved."""
+    target_token = r"(?:[A-Za-z0-9][A-Za-z0-9_.-]*|\$\([^)\n]+\)|\$\{[^}\n]+\})"
+    target_list = re.compile(
+        rf"^\s*({target_token}(?:[ \t]+{target_token})*):(?!=)",
+        re.M)
+    static_assignment = re.compile(
+        r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*([^\n#]*)", re.M)
+    static_target = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+    variable = re.compile(
+        r"\$\(([A-Za-z_][A-Za-z0-9_]*)\)|"
+        r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+    variables = {}
+    for match in static_assignment.finditer(text):
+        values = match.group(2).split()
+        if values and all(static_target.fullmatch(value) for value in values):
+            variables[match.group(1)] = values
+
+    targets = set()
+    complete = True
+    for match in target_list.finditer(text):
+        for token in match.group(1).split():
+            variable_match = variable.fullmatch(token)
+            if variable_match:
+                name = variable_match.group(1) or variable_match.group(2)
+                if name in variables:
+                    targets.update(variables[name])
+                else:
+                    complete = False
+            elif "$" in token:
+                complete = False
+            else:
+                targets.add(token)
+
+    for line in text.splitlines():
+        line = line.split("#", 1)[0]
+        colon = line.find(":")
+        if colon >= 0 and "$" in line[:colon]:
+            left = line[:colon].strip()
+            references = variable.findall(left)
+            rule = target_list.match(line)
+            unresolved = any(
+                (reference[0] or reference[1]) not in variables
+                for reference in references)
+            if (not rule or rule.group(1).strip() != left
+                    or not references or unresolved):
+                complete = False
+    return targets, complete
+
+
 def makefile_targets(repo: Path, rel: str) -> set[str]:
     """Read static target names from one Makefile inventory."""
-    target_list = re.compile(
-        r"^([A-Za-z0-9][A-Za-z0-9_.-]*(?:[ \t]+[A-Za-z0-9][A-Za-z0-9_.-]*)*):(?!=)",
-        re.M)
-    return {target for match in target_list.finditer(read(repo / rel))
-            for target in match.group(1).split()}
+    return makefile_target_inventory(read(repo / rel))[0]
 
 
 def makefile_inventory_complete(repo: Path, rel: str) -> bool:
@@ -418,7 +464,8 @@ def makefile_inventory_complete(repo: Path, rel: str) -> bool:
     text = read(repo / rel)
     has_pattern_rule = re.search(r"^\s*[^:\n]*%[^:\n]*:", text, re.M)
     has_inclusion = re.search(r"^\s*(?:-?include|sinclude)\s+", text, re.M)
-    return not (has_pattern_rule or has_inclusion)
+    _, target_variables_resolved = makefile_target_inventory(text)
+    return not (has_pattern_rule or has_inclusion or not target_variables_resolved)
 
 
 def make_target_has_builtin_rule(repo: Path, cwd: Path, target: str,

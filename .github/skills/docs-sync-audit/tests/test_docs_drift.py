@@ -1006,6 +1006,44 @@ continues inside this code span`
             self.assertEqual(len(missing_targets), 1)
             self.assertIn("unknown", missing_targets[0]["detail"])
 
+    def test_make_target_variable_is_resolved_from_simple_assignment(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            (repo / "Makefile").write_text(
+                "TARGETS := build test\n"
+                "$(TARGETS):\n\t@echo $@\n", encoding="utf-8")
+            (repo / "README.md").write_text(
+                "```sh\nmake build\nmake test\nmake unknown\n```\n",
+                encoding="utf-8")
+
+            self.assertEqual(
+                DOCS_DRIFT.makefile_targets(repo, "Makefile"),
+                {"build", "test"})
+            self.assertTrue(
+                DOCS_DRIFT.makefile_inventory_complete(repo, "Makefile"))
+            result = DOCS_DRIFT.build(repo, ["Makefile", "README.md"])
+            missing = [
+                finding["detail"] for finding in result["findings"]
+                if finding["kind"] == "missing-make-target"
+            ]
+            self.assertEqual(len(missing), 1)
+            self.assertIn("unknown", missing[0])
+
+    def test_unresolved_make_target_variable_suppresses_negative_checks(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            (repo / "Makefile").write_text(
+                "$(GENERATED_TARGETS):\n\t@echo $@\n", encoding="utf-8")
+            (repo / "README.md").write_text(
+                "```sh\nmake unknown\n```\n", encoding="utf-8")
+
+            self.assertFalse(
+                DOCS_DRIFT.makefile_inventory_complete(repo, "Makefile"))
+            result = DOCS_DRIFT.build(repo, ["Makefile", "README.md"])
+            self.assertNotIn(
+                "missing-make-target",
+                {finding["kind"] for finding in result["findings"]})
+
     def test_make_target_declared_only_in_nested_makefile_is_missing_at_root(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
